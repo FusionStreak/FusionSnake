@@ -22,7 +22,7 @@ use std::string::String;
 /// ```
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RoyaleSettings {
-    pub(super) shrink_every_n_turns: u32,
+    pub(super) shrinkEveryNTurns: u32,
 }
 
 /// Squad settings object
@@ -52,10 +52,10 @@ pub struct RoyaleSettings {
 #[derive(Deserialize, Serialize, Debug)]
 
 pub struct SquadSettings {
-    pub(super) allow_body_collisions: bool,
-    pub(super) shared_elimination: bool,
-    pub(super) shared_health: bool,
-    pub(super) shared_length: bool,
+    pub(super) allowBodyCollisions: bool,
+    pub(super) sharedElimination: bool,
+    pub(super) sharedHealth: bool,
+    pub(super) sharedLength: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -101,9 +101,9 @@ pub struct SquadSettings {
 /// };
 /// ```
 pub struct RulesetSettings {
-    pub(super) food_spawn_chance: u32,
-    pub(super) minimum_food: u32,
-    pub(super) hazard_damage_per_turn: u32,
+    pub(super) foodSpawnChance: u32,
+    pub(super) minimumFood: u32,
+    pub(super) hazardDamagePerTurn: u32,
     pub(super) royale: RoyaleSettings,
     pub(super) squad: SquadSettings,
 }
