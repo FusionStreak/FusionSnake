@@ -241,6 +241,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "fusion-snake"
+version = "1.0.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "rand",
+ "rocket",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1060,18 +1072,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4564168c00635f88eaed410d5efa8131afa8d8699a612c80c455a0ba05c21045"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "starter-snake-rust"
-version = "1.0.0"
-dependencies = [
- "env_logger",
- "log",
- "rand",
- "rocket",
- "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,31 @@
+{
+    "name": "FusionSnake | Rust",
+    "image": "rust:1.78-bullseye",
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {
+            "version": "latest"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "serayuzgur.crates",
+                "ms-vscode-remote.remote-containers",
+                "ms-azuretools.vscode-docker",
+                "GitHub.codespaces",
+                "GitHub.copilot",
+                "GitHub.copilot-chat",
+                "GitHub.vscode-pull-request-github",
+                "VisualStudioExptTeam.vscodeintellicode",
+                "VisualStudioExptTeam.intellicode-api-usage-examples",
+                "DavidAnson.vscode-markdownlint",
+                "ms-vscode-remote.remote-ssh",
+                "ms-vscode-remote.remote-ssh-edit",
+                "ms-vscode.remote-explorer",
+                "JScearcy.rust-doc-viewer",
+                "dustypomerleau.rust-syntax",
+                "rust-lang.rust-analyzer"
+            ]
+        }
+    }
+}

@@ -1,6 +1,6 @@
 [package]
 authors = ["Martin Amps <https://twitter.com/martinamps>"]
-name = "starter-snake-rust"
+name = "fusion-snake"
 version = "1.0.0"
 edition = "2018"
 
