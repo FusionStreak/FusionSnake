@@ -56,7 +56,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     .into_iter()
     .collect();
 
-    let potential_moves: Vec<Coord> = vec![
+    let mut potential_moves: Vec<Coord> = vec![
         Coord {
             x: you.head.x,
             y: you.head.y + 1,
@@ -120,11 +120,70 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         .map(|(k, _)| k)
         .collect::<Vec<_>>();
 
-    // Choose a random move from the safe ones
-    let chosen = safe_moves.choose(&mut rand::thread_rng()).unwrap();
+    // Reset the potential moves
+    potential_moves = Vec::new();
 
-    // TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-    // let food = &board.food;
+    // Add the safe moves to the potential moves
+    for safe_move in &safe_moves {
+        info!("Safe move: {}", safe_move);
+        match safe_move {
+            &"up" => potential_moves.push(Coord {
+                x: you.head.x,
+                y: you.head.y + 1,
+            }),
+            &"down" => potential_moves.push(Coord {
+                x: you.head.x,
+                y: you.head.y - 1,
+            }),
+            &"left" => potential_moves.push(Coord {
+                x: you.head.x - 1,
+                y: you.head.y,
+            }),
+            &"right" => potential_moves.push(Coord {
+                x: you.head.x + 1,
+                y: you.head.y,
+            }),
+            _ => panic!("Invalid move"),
+        };
+    }
+
+    // Choose a random move from the safe ones
+
+    // Choose the move that gets us closest to the food
+    let food: &Vec<Coord> = &board.food;
+    let mut closest_food: &Coord = &food[0];
+    let mut closest_distance: i32 = i32::MAX;
+    for food_coord in food {
+        let distance: i32 = food_coord.distance_to(&you.head);
+        if distance < closest_distance {
+            closest_distance = distance;
+            closest_food = food_coord;
+        }
+    }
+
+    // Choose the move that gets us closest to the food
+    for potential_move in potential_moves.iter() {
+        // Calculate the distance to the closest food relative to the potential move
+        let dist: i32 = potential_move.distance_to(closest_food);
+        // If the potential move is closer to the food than the current closest distance
+        if dist < closest_distance {
+            if potential_move.x <= closest_food.x {
+                // If the potential move is to the left of the food
+                return json!({ "move": "right" });
+            } else if potential_move.x >= closest_food.x {
+                // If the potential move is to the right of the food
+                return json!({ "move": "left" });
+            } else if potential_move.y <= closest_food.y {
+                // If the potential move is below the food
+                return json!({ "move": "up" });
+            } else if potential_move.y >= closest_food.y {
+                // If the potential move is above the food
+                return json!({ "move": "down" });
+            }
+        }
+    }
+
+    let chosen: &&str = safe_moves.choose(&mut rand::thread_rng()).unwrap();
 
     info!("MOVE {}: {}", turn, chosen);
     return json!({ "move": chosen });
