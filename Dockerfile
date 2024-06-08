@@ -1,4 +1,4 @@
-FROM rust:1.78-alpine
+FROM rust:1.78-slim-bookworm
 
 COPY . /usr/app
 WORKDIR /usr/app
