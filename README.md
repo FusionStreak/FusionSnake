@@ -1,20 +1,27 @@
-# Battlesnake JavaScript Starter Project
+# FusionSnake
 
-### An official Battlesnake template written in JavaScript. Get started at [play.battlesnake.com](https://play.battlesnake.com).
+FusionSnake is a [Battlesnake](https://play.battlesnake.com/) written in Rust. It is a simple snake that tries to avoid walls and other snakes, and tries to eat food.
 
-![Battlesnake Logo](https://media.battlesnake.com/social/StarterSnakeGitHubRepos_JavaScript.png)
+Feel free to use this snake as a starting point for your own snake, or to fork it and make it your own!
 
-This project is a great starting point for anyone wanting to program their first Battlesnake in JavaScript. It can be run locally or easily deployed to a cloud provider of your choosing. See the [Battlesnake API Docs](https://docs.battlesnake.com/api) for more detail. 
+## Running the Snake
 
-## Technologies Used
+### Prerequisites
 
-This project uses [Node.js](https://nodejs.org/en/) and [Express](https://expressjs.com/).
+- [Rust](https://www.rust-lang.org/tools/install)
+- [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
-## Run Your Battlesnake
+### Start the Snake
 
-1. Click the green 'Run' button to start your Battlesnake.
-2. Use your repl.co URL to register your Battlesnake and play games on [play.battlesnake.com](https://play.battlesnake.com).
+1. Clone the repository
+2. Run the snake with `cargo run`
 
-## Next Steps
+## What is BattleSnake?
 
-Continue with the [Battlesnake Quickstart Guide](https://docs.battlesnake.com/quickstart) to customize and improve your Battlesnake's behavior.
+BattleSnake is a multiplayer programming game played on a grid. Your snake is controlled by a REST API, and you program it to move around the grid and collect food. As your snake finds and eats food, it grows. The last snake slithering wins.
+
+For more information, check out [play.battlesnake.com](https://play.battlesnake.com/).
+
+## Credits
+
+This project is based on the [starter-snake-rust](https://github.com/BattlesnakeOfficial/starter-snake-rust) by [@BattlesnakeOfficial](https://github.com/BattlesnakeOfficial).
