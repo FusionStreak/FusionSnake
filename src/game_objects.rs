@@ -323,6 +323,11 @@ pub struct Coord {
     pub(super) y: i32,
 }
 
+impl Coord {
+    pub fn distance_to(&self, other: &Coord) -> i32 {
+        (self.x - other.x).abs() + (self.y - other.y).abs()
+    }
+}
 /// GameState object
 ///
 /// This object contains the game, turn, board, and you of the GameState.
