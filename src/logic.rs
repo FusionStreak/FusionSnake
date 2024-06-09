@@ -11,11 +11,15 @@
 // For more info see docs.battlesnake.com
 
 use log::info;
-use rand::seq::SliceRandom;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::game_objects::{Battlesnake, Board, Coord, Game};
+
+struct Move<'a> {
+    direction: &'a str,
+    coord: Coord,
+}
 
 // info is called when you create your Battlesnake on play.battlesnake.com
 // and controls your Battlesnake's appearance
@@ -56,7 +60,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     .into_iter()
     .collect();
 
-    let mut potential_moves: Vec<Coord> = vec![
+    let potential_moves: Vec<Coord> = vec![
         Coord {
             x: you.head.x,
             y: you.head.y + 1,
@@ -121,27 +125,39 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         .collect::<Vec<_>>();
 
     // Reset the potential moves
-    potential_moves = Vec::new();
+    let mut potential_moves: Vec<Move> = Vec::new();
 
     // Add the safe moves to the potential moves
     for safe_move in &safe_moves {
         info!("Safe move: {}", safe_move);
         match safe_move {
-            &"up" => potential_moves.push(Coord {
-                x: you.head.x,
-                y: you.head.y + 1,
+            &"up" => potential_moves.push(Move {
+                direction: safe_move,
+                coord: Coord {
+                    x: you.head.x,
+                    y: you.head.y + 1,
+                },
             }),
-            &"down" => potential_moves.push(Coord {
-                x: you.head.x,
-                y: you.head.y - 1,
+            &"down" => potential_moves.push(Move {
+                direction: safe_move,
+                coord: Coord {
+                    x: you.head.x,
+                    y: you.head.y - 1,
+                },
             }),
-            &"left" => potential_moves.push(Coord {
-                x: you.head.x - 1,
-                y: you.head.y,
+            &"left" => potential_moves.push(Move {
+                direction: safe_move,
+                coord: Coord {
+                    x: you.head.x - 1,
+                    y: you.head.y,
+                },
             }),
-            &"right" => potential_moves.push(Coord {
-                x: you.head.x + 1,
-                y: you.head.y,
+            &"right" => potential_moves.push(Move {
+                direction: safe_move,
+                coord: Coord {
+                    x: you.head.x + 1,
+                    y: you.head.y,
+                },
             }),
             _ => panic!("Invalid move"),
         };
@@ -161,30 +177,22 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         }
     }
 
+    let mut closest_move: u8 = 0;
+    let mut closest_move_distance: i32 = i32::MAX;
+
     // Choose the move that gets us closest to the food
-    for potential_move in potential_moves.iter() {
+    for (i, potential_move) in potential_moves.iter().enumerate() {
         // Calculate the distance to the closest food relative to the potential move
-        let dist: i32 = potential_move.distance_to(closest_food);
+        let dist: i32 = potential_move.coord.distance_to(closest_food);
         // If the potential move is closer to the food than the current closest distance
-        if dist < closest_distance {
-            if potential_move.x <= closest_food.x {
-                // If the potential move is to the left of the food
-                return json!({ "move": "right" });
-            } else if potential_move.x >= closest_food.x {
-                // If the potential move is to the right of the food
-                return json!({ "move": "left" });
-            } else if potential_move.y <= closest_food.y {
-                // If the potential move is below the food
-                return json!({ "move": "up" });
-            } else if potential_move.y >= closest_food.y {
-                // If the potential move is above the food
-                return json!({ "move": "down" });
-            }
+        if dist < closest_distance && dist < closest_move_distance {
+            closest_move_distance = dist;
+            closest_move = i as u8;
         }
     }
 
-    let chosen: &&str = safe_moves.choose(&mut rand::thread_rng()).unwrap();
-
+    // Choose the move that gets us closest to the food
+    let chosen: &str = potential_moves[closest_move as usize].direction;
     info!("MOVE {}: {}", turn, chosen);
     return json!({ "move": chosen });
 }
