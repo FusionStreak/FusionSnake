@@ -12,13 +12,64 @@
 
 use log::info;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 
 use crate::game_objects::{Battlesnake, Board, Coord, Game};
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct Move<'a> {
     direction: &'a str,
     coord: Coord,
+    safety_score: u8,
+    desirability_score: u8,
+}
+
+impl Move<'static> {
+    fn new(direction: &str, coord: Coord) -> Move {
+        Move {
+            direction,
+            coord,
+            safety_score: u8::MAX,
+            desirability_score: 0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct PotentialMoves<'a> {
+    up: Move<'a>,
+    down: Move<'a>,
+    left: Move<'a>,
+    right: Move<'a>,
+}
+
+impl<'a> IntoIterator for PotentialMoves<'a> {
+    type Item = Move<'a>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        vec![self.up, self.down, self.left, self.right].into_iter()
+    }
+}
+
+impl PotentialMoves<'static> {
+    fn new() -> PotentialMoves<'static> {
+        PotentialMoves {
+            up: Move::new("up", Coord { x: 0, y: 0 }),
+            down: Move::new("down", Coord { x: 0, y: 0 }),
+            left: Move::new("left", Coord { x: 0, y: 0 }),
+            right: Move::new("right", Coord { x: 0, y: 0 }),
+        }
+    }
+
+    fn set_move_coord(&mut self, direction: &str, x: i32, y: i32) {
+        match direction {
+            "up" => self.up.coord = Coord { x, y },
+            "down" => self.down.coord = Coord { x, y },
+            "left" => self.left.coord = Coord { x, y },
+            "right" => self.right.coord = Coord { x, y },
+            _ => (),
+        }
+    }
 }
 
 // info is called when you create your Battlesnake on play.battlesnake.com
@@ -51,148 +102,87 @@ pub fn end(game: &Game, turn: &i32, _board: &Board, _you: &Battlesnake) {
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
 pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> Value {
-    let mut is_move_safe: HashMap<_, _> = vec![
-        ("up", true),
-        ("down", true),
-        ("left", true),
-        ("right", true),
-    ]
-    .into_iter()
-    .collect();
+    info!("TURN {}", turn);
 
-    let potential_moves: Vec<Coord> = vec![
-        Coord {
-            x: you.head.x,
-            y: you.head.y + 1,
-        },
-        Coord {
-            x: you.head.x,
-            y: you.head.y - 1,
-        },
-        Coord {
-            x: you.head.x - 1,
-            y: you.head.y,
-        },
-        Coord {
-            x: you.head.x + 1,
-            y: you.head.y,
-        },
-    ];
+    let mut potential_moves: PotentialMoves = PotentialMoves::new();
+    potential_moves.set_move_coord("up", you.head.x, you.head.y + 1);
+    potential_moves.set_move_coord("down", you.head.x, you.head.y - 1);
+    potential_moves.set_move_coord("left", you.head.x - 1, you.head.y);
+    potential_moves.set_move_coord("right", you.head.x + 1, you.head.y);
 
-    // Mark out of bounds moves as unsafe
-    for (i, coord) in potential_moves.iter().enumerate() {
-        if coord.x < 0 || coord.x >= board.width || coord.y < 0 || coord.y >= board.height {
-            is_move_safe.insert(
-                match i {
-                    0 => "up",
-                    1 => "down",
-                    2 => "left",
-                    3 => "right",
-                    _ => panic!("Invalid index"),
-                },
-                false,
-            );
+    // Determine immediate safety of each move
+    for mut pmove in potential_moves {
+        // Check if move is out of bounds
+        if pmove.coord.x < 0
+            || pmove.coord.x >= board.width
+            || pmove.coord.y < 0
+            || pmove.coord.y >= board.height
+        {
+            pmove.safety_score = 0;
         }
-    }
-
-    let mut non_safe_coords: Vec<Coord> = vec![];
-
-    // Mark moves that would collide with a snake as unsafe
-    let opponents: &Vec<Battlesnake> = &board.snakes;
-    for snake in opponents {
-        non_safe_coords.extend(snake.body.iter().cloned());
-    }
-
-    for coord in non_safe_coords {
-        for (i, potential_move) in potential_moves.iter().enumerate() {
-            if coord == *potential_move {
-                match i {
-                    0 => is_move_safe.insert("up", false),
-                    1 => is_move_safe.insert("down", false),
-                    2 => is_move_safe.insert("left", false),
-                    3 => is_move_safe.insert("right", false),
-                    _ => panic!("Invalid index"),
-                };
+        // Check if move collides with other snakes
+        for snake in &board.snakes {
+            for coord in &snake.body {
+                if pmove.coord == *coord {
+                    pmove.safety_score = 0;
+                }
             }
         }
     }
 
-    // Are there any safe moves left?
-    let safe_moves: Vec<&str> = is_move_safe
-        .into_iter()
-        .filter(|&(_, v)| v)
-        .map(|(k, _)| k)
-        .collect::<Vec<_>>();
-
-    // Reset the potential moves
-    let mut potential_moves: Vec<Move> = Vec::new();
-
-    // Add the safe moves to the potential moves
-    for safe_move in &safe_moves {
-        info!("Safe move: {}", safe_move);
-        match safe_move {
-            &"up" => potential_moves.push(Move {
-                direction: safe_move,
-                coord: Coord {
-                    x: you.head.x,
-                    y: you.head.y + 1,
-                },
-            }),
-            &"down" => potential_moves.push(Move {
-                direction: safe_move,
-                coord: Coord {
-                    x: you.head.x,
-                    y: you.head.y - 1,
-                },
-            }),
-            &"left" => potential_moves.push(Move {
-                direction: safe_move,
-                coord: Coord {
-                    x: you.head.x - 1,
-                    y: you.head.y,
-                },
-            }),
-            &"right" => potential_moves.push(Move {
-                direction: safe_move,
-                coord: Coord {
-                    x: you.head.x + 1,
-                    y: you.head.y,
-                },
-            }),
-            _ => panic!("Invalid move"),
-        };
-    }
-
-    // Choose a random move from the safe ones
-
-    // Choose the move that gets us closest to the food
-    let food: &Vec<Coord> = &board.food;
-    let mut closest_food: &Coord = &food[0];
-    let mut closest_distance: i32 = i32::MAX;
-    for food_coord in food {
-        let distance: i32 = food_coord.distance_to(&you.head);
-        if distance < closest_distance {
-            closest_distance = distance;
-            closest_food = food_coord;
+    // Check if move is along the edge of the board, if yes reduce safety score by 1
+    for mut pmove in potential_moves {
+        if pmove.safety_score == 0 {
+            continue;
+        }
+        if pmove.coord.x <= 1 || pmove.coord.x >= -board.width - 2 {
+            pmove.safety_score -= 1;
+        }
+        if pmove.coord.y <= 1 || pmove.coord.y >= board.height - 2 {
+            pmove.safety_score -= 1;
         }
     }
 
-    let mut closest_move: u8 = 0;
-    let mut closest_move_distance: i32 = i32::MAX;
-
-    // Choose the move that gets us closest to the food
-    for (i, potential_move) in potential_moves.iter().enumerate() {
-        // Calculate the distance to the closest food relative to the potential move
-        let dist: i32 = potential_move.coord.distance_to(closest_food);
-        // If the potential move is closer to the food than the current closest distance
-        if dist < closest_distance && dist < closest_move_distance {
-            closest_move_distance = dist;
-            closest_move = i as u8;
+    // Check if move is near head of other snakes, if yes reduce safety score by 1
+    for mut pmove in potential_moves {
+        if pmove.safety_score == 0 {
+            continue;
+        }
+        for snake in &board.snakes {
+            if snake.id == you.id {
+                continue;
+            }
+            let head = snake.head;
+            if pmove.coord.distance_to(&head) <= 2 {
+                pmove.safety_score -= 1;
+            }
         }
     }
 
-    // Choose the move that gets us closest to the food
-    let chosen: &str = potential_moves[closest_move as usize].direction;
-    info!("MOVE {}: {}", turn, chosen);
+    // Determine nearest food for each move
+    for mut pmove in potential_moves {
+        for food in &board.food {
+            let distance: u8 = pmove.coord.distance_to(&food);
+            if distance < pmove.desirability_score {
+                pmove.desirability_score = distance;
+            }
+        }
+    }
+
+    // Choose the move with the highest safety score and lowest desirability score
+    let mut chosen: &str = "up";
+    let mut max_safety_score: u8 = 0;
+    let mut min_desirability_score: u8 = u8::MAX;
+    for pmove in potential_moves {
+        if pmove.safety_score > max_safety_score
+            || (pmove.safety_score == max_safety_score
+                && pmove.desirability_score < min_desirability_score)
+        {
+            chosen = pmove.direction;
+            max_safety_score = pmove.safety_score;
+            min_desirability_score = pmove.desirability_score;
+        }
+    }
+
     return json!({ "move": chosen });
 }
