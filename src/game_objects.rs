@@ -324,8 +324,10 @@ pub struct Coord {
 }
 
 impl Coord {
-    pub fn distance_to(&self, other: &Coord) -> i32 {
-        (self.x - other.x).abs() + (self.y - other.y).abs()
+    pub fn distance_to(&self, other: &Coord) -> u8 {
+        ((self.x - other.x).abs() + (self.y - other.y).abs())
+            .try_into()
+            .unwrap()
     }
 }
 /// GameState object
