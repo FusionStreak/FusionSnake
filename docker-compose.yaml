@@ -1,0 +1,6 @@
+services:
+  snek:
+    buid: .
+    command: bash -c "cargo run"
+    ports:
+      - 6666:6666
