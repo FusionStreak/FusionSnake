@@ -159,30 +159,38 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         }
     }
 
-    // Determine nearest food for each move
+    // Determine nearest food to snake head
+    let mut nearest_food: Coord = Coord { x: 0, y: 0 };
+    let mut nearest_food_distance: u8 = u8::MAX;
+    for food in &board.food {
+        let distance = you.head.distance_to(food);
+        if distance < nearest_food_distance {
+            nearest_food = *food;
+            nearest_food_distance = distance;
+        }
+    }
+
+    // Determine desirability of each move
     for mut pmove in potential_moves {
-        for food in &board.food {
-            let distance: u8 = pmove.coord.distance_to(&food);
-            if distance < pmove.desirability_score {
-                pmove.desirability_score = distance;
-            }
+        if pmove.safety_score == 0 {
+            continue;
         }
+        pmove.desirability_score = u8::MAX - pmove.coord.distance_to(&nearest_food);
     }
 
-    // Choose the move with the highest safety score and lowest desirability score
+    // Choose the move with the highest desirability score
     let mut chosen: &str = "up";
-    let mut max_safety_score: u8 = 0;
-    let mut min_desirability_score: u8 = u8::MAX;
+    let mut highest_score: u8 = 0;
     for pmove in potential_moves {
-        if pmove.safety_score > max_safety_score
-            || (pmove.safety_score == max_safety_score
-                && pmove.desirability_score < min_desirability_score)
-        {
+        if pmove.safety_score == 0 {
+            continue;
+        }
+        if pmove.desirability_score > highest_score {
             chosen = pmove.direction;
-            max_safety_score = pmove.safety_score;
-            min_desirability_score = pmove.desirability_score;
+            highest_score = pmove.desirability_score;
         }
     }
 
+    info!("MOVE {}", chosen);
     return json!({ "move": chosen });
 }
