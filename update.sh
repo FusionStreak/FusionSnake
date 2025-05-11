@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# Rebuild the container
-docker compose build
+git pull
 
-# Stop and remove the existing containers
-docker compose down
-
-# Launch the containers
-docker compose up -d
+# Rebuild the container and start it
+docker compose build && docker compose up -d
