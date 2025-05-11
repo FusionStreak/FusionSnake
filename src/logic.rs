@@ -108,6 +108,14 @@ impl PotentialMoves {
         ]
         .into_iter()
     }
+
+    fn choose_best_move(&self) -> &'static str {
+        self.iter()
+            .filter(|m| m.safety_score > 0)
+            .max_by_key(|m| m.desirability_score)
+            .map(|m| m.direction.as_str())
+            .unwrap_or("up")
+    }
 }
 
 // info is called when you create your Battlesnake on play.battlesnake.com
@@ -145,41 +153,43 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     let mut potential_moves: PotentialMoves = PotentialMoves::new(you.head);
 
     // Determine immediate safety of each move
-    for pmove in potential_moves.iter_mut() {
+    for mv in potential_moves.iter_mut() {
         // Check if move is out of bounds
-        if pmove.coord.x < 0
-            || pmove.coord.x >= board.width
-            || pmove.coord.y < 0
-            || pmove.coord.y >= board.height
+        if mv.coord.x < 0
+            || mv.coord.x >= board.width
+            || mv.coord.y < 0
+            || mv.coord.y >= board.height
         {
-            pmove.safety_score = 0;
+            mv.safety_score = 0;
+            continue;
         }
+
         // Check if move collides with other snakes
         for snake in &board.snakes {
             for coord in &snake.body {
-                if pmove.coord == *coord {
-                    pmove.safety_score = 0;
+                if mv.coord == *coord {
+                    mv.safety_score = 0;
                 }
             }
         }
     }
 
-    // Check if move is along the edge of the board, if yes reduce safety score by 1
-    for pmove in potential_moves.iter_mut() {
-        if pmove.safety_score == 0 {
+    // Penalize edge proximity
+    for mv in potential_moves.iter_mut() {
+        if mv.safety_score == 0 {
             continue;
         }
-        if pmove.coord.x <= 1 || pmove.coord.x >= -board.width - 2 {
-            pmove.safety_score -= 1;
+        if mv.coord.x <= 1 || mv.coord.x >= board.width - 2 {
+            mv.safety_score = mv.safety_score.saturating_sub(1);
         }
-        if pmove.coord.y <= 1 || pmove.coord.y >= board.height - 2 {
-            pmove.safety_score -= 1;
+        if mv.coord.y <= 1 || mv.coord.y >= board.height - 2 {
+            mv.safety_score = mv.safety_score.saturating_sub(1);
         }
     }
 
-    // Check if move is near head of other snakes, if yes reduce safety score by 1
-    for pmove in potential_moves.iter_mut() {
-        if pmove.safety_score == 0 {
+    // Penalize proximity to other snake heads
+    for mv in potential_moves.iter_mut() {
+        if mv.safety_score == 0 {
             continue;
         }
         for snake in &board.snakes {
@@ -187,8 +197,8 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
                 continue;
             }
             let head = snake.head;
-            if pmove.coord.distance_to(&head) <= 2 {
-                pmove.safety_score -= 1;
+            if mv.coord.distance_to(&head) <= 2 {
+                mv.safety_score = mv.safety_score.saturating_sub(1);
             }
         }
     }
@@ -204,27 +214,17 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         }
     }
 
-    // Determine desirability of each move
-    for pmove in potential_moves.iter_mut() {
-        if pmove.safety_score == 0 {
+    // Score desirability
+    for mv in potential_moves.iter_mut() {
+        if mv.safety_score == 0 {
             continue;
         }
-        pmove.desirability_score = u8::MAX - pmove.coord.distance_to(&nearest_food);
+        let distance = mv.coord.distance_to(&nearest_food);
+        mv.desirability_score = if distance >= 200 { 0 } else { 200 - distance };
     }
 
-    // Choose the move with the highest desirability score
-    let mut chosen: &str = "up";
-    let mut highest_score: u8 = 0;
-    for pmove in potential_moves.iter_mut() {
-        if pmove.safety_score == 0 {
-            continue;
-        }
-        if pmove.desirability_score > highest_score {
-            chosen = pmove.direction.as_str();
-            highest_score = pmove.desirability_score;
-        }
-    }
+    let chosen = potential_moves.choose_best_move();
 
     info!("MOVE {}", chosen);
-    return json!({ "move": chosen });
+    json!({ "move": chosen })
 }
