@@ -109,10 +109,13 @@ impl PotentialMoves {
         .into_iter()
     }
 
-    fn choose_best_move(&self) -> &'static str {
+    fn choose_best_move_weighted(&self, safety_weight: u16, food_weight: u16) -> &'static str {
         self.iter()
             .filter(|m| m.safety_score > 0)
-            .max_by_key(|m| m.desirability_score)
+            .max_by_key(|m| {
+                (m.safety_score as u16 * safety_weight)
+                    + (m.desirability_score as u16 * food_weight)
+            })
             .map(|m| m.direction.as_str())
             .unwrap_or("up")
     }
@@ -223,7 +226,10 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         mv.desirability_score = if distance >= 200 { 0 } else { 200 - distance };
     }
 
-    let chosen: &'static str = potential_moves.choose_best_move();
+    // Balance weights based on health
+    let (safety_weight, food_weight) = if you.health < 30 { (1, 2) } else { (2, 1) };
+
+    let chosen = potential_moves.choose_best_move_weighted(safety_weight, food_weight);
 
     info!("MOVE {}", chosen);
     json!({ "move": chosen })
