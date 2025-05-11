@@ -201,9 +201,9 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
             }
             let head: Coord = snake.head;
             let distance: u8 = mv.coord.distance_to(&head);
-            mv.safety_score = mv
-                .safety_score
-                .saturating_sub(2 * (board.height.saturating_sub(distance)));
+            if distance < 2 {
+                mv.safety_score = mv.safety_score.saturating_sub(4);
+            }
         }
     }
 
@@ -218,7 +218,9 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
             }
             for coord in &snake.body {
                 let distance: u8 = mv.coord.distance_to(coord);
-                mv.safety_score = mv.safety_score.saturating_sub(board.height - distance);
+                if distance < 2 {
+                    mv.safety_score = mv.safety_score.saturating_sub(2);
+                }
             }
         }
     }
