@@ -52,24 +52,20 @@ fn handle_end(end_req: Json<GameState>) -> Status {
 
 #[launch]
 fn rocket() -> _ {
-    // Lots of web hosting services expect you to bind to the port specified by the `PORT`
-    // environment variable. However, Rocket looks at the `ROCKET_PORT` environment variable.
-    // If we find a value for `PORT`, we set `ROCKET_PORT` to that value.
-    if let Ok(port) = env::var("PORT") {
-        env::set_var("ROCKET_PORT", &port);
-    }
+    let port = env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(6666);
 
-    // We default to 'info' level logging. But if the `RUST_LOG` environment variable is set,
-    // we keep that value instead.
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info");
-    }
+    // Retrieve the log level from the `RUST_LOG` environment variable or default to "info".
+    let log_level = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     info!("Starting Battlesnake Server...");
 
-    rocket::build()
+    // Build the Rocket instance with the specified port.
+    rocket::custom(rocket::Config::figment().merge(("port", port)))
         .attach(AdHoc::on_response("Server ID Middleware", |_, res| {
             Box::pin(async move {
                 res.set_raw_header("Server", "battlesnake/github/starter-snake-rust");
