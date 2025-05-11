@@ -159,9 +159,9 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     for mv in potential_moves.iter_mut() {
         // Check if move is out of bounds
         if mv.coord.x < 0
-            || mv.coord.x >= board.width
+            || mv.coord.x >= board.width as i8
             || mv.coord.y < 0
-            || mv.coord.y >= board.height
+            || mv.coord.y >= board.height as i8
         {
             mv.safety_score = 0;
             continue;
@@ -182,10 +182,10 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         if mv.safety_score == 0 {
             continue;
         }
-        if mv.coord.x <= 1 || mv.coord.x >= board.width - 2 {
+        if mv.coord.x <= 1 || mv.coord.x >= (board.width - 2) as i8 {
             mv.safety_score = mv.safety_score.saturating_sub(1);
         }
-        if mv.coord.y <= 1 || mv.coord.y >= board.height - 2 {
+        if mv.coord.y <= 1 || mv.coord.y >= (board.height - 2) as i8 {
             mv.safety_score = mv.safety_score.saturating_sub(1);
         }
     }
@@ -200,8 +200,25 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
                 continue;
             }
             let head: Coord = snake.head;
-            if mv.coord.distance_to(&head) <= 2 {
-                mv.safety_score = mv.safety_score.saturating_sub(1);
+            let distance: u8 = mv.coord.distance_to(&head);
+            mv.safety_score = mv
+                .safety_score
+                .saturating_sub(2 * (board.height.saturating_sub(distance)));
+        }
+    }
+
+    // Penalize proximity to other snake bodies
+    for mv in potential_moves.iter_mut() {
+        if mv.safety_score == 0 {
+            continue;
+        }
+        for snake in &board.snakes {
+            if snake.id == you.id {
+                continue;
+            }
+            for coord in &snake.body {
+                let distance: u8 = mv.coord.distance_to(coord);
+                mv.safety_score = mv.safety_score.saturating_sub(board.height - distance);
             }
         }
     }
