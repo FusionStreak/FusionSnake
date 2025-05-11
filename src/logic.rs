@@ -11,21 +11,21 @@
 // For more info see docs.battlesnake.com
 
 use log::info;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::game_objects::{Battlesnake, Board, Coord, Game};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-struct Move<'a> {
-    direction: &'a str,
+struct Move {
+    direction: Direction,
     coord: Coord,
     safety_score: u8,
     desirability_score: u8,
 }
 
-impl Move<'static> {
-    fn new(direction: &str, coord: Coord) -> Move {
-        Move {
+impl Move {
+    fn new(direction: Direction, coord: Coord) -> Self {
+        Self {
             direction,
             coord,
             safety_score: u8::MAX,
@@ -34,41 +34,79 @@ impl Move<'static> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct PotentialMoves<'a> {
-    up: Move<'a>,
-    down: Move<'a>,
-    left: Move<'a>,
-    right: Move<'a>,
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
-impl<'a> IntoIterator for PotentialMoves<'a> {
-    type Item = Move<'a>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        vec![self.up, self.down, self.left, self.right].into_iter()
+impl Direction {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Direction::Up => "up",
+            Direction::Down => "down",
+            Direction::Left => "left",
+            Direction::Right => "right",
+        }
     }
 }
 
-impl PotentialMoves<'static> {
-    fn new() -> PotentialMoves<'static> {
-        PotentialMoves {
-            up: Move::new("up", Coord { x: 0, y: 0 }),
-            down: Move::new("down", Coord { x: 0, y: 0 }),
-            left: Move::new("left", Coord { x: 0, y: 0 }),
-            right: Move::new("right", Coord { x: 0, y: 0 }),
+#[derive(Debug, Clone)]
+struct PotentialMoves {
+    pub up: Move,
+    pub down: Move,
+    pub left: Move,
+    pub right: Move,
+}
+
+impl PotentialMoves {
+    fn new(head: Coord) -> Self {
+        Self {
+            up: Move::new(
+                Direction::Up,
+                Coord {
+                    x: head.x,
+                    y: head.y + 1,
+                },
+            ),
+            down: Move::new(
+                Direction::Down,
+                Coord {
+                    x: head.x,
+                    y: head.y - 1,
+                },
+            ),
+            left: Move::new(
+                Direction::Left,
+                Coord {
+                    x: head.x - 1,
+                    y: head.y,
+                },
+            ),
+            right: Move::new(
+                Direction::Right,
+                Coord {
+                    x: head.x + 1,
+                    y: head.y,
+                },
+            ),
         }
     }
 
-    fn set_move_coord(&mut self, direction: &str, x: i32, y: i32) {
-        match direction {
-            "up" => self.up.coord = Coord { x, y },
-            "down" => self.down.coord = Coord { x, y },
-            "left" => self.left.coord = Coord { x, y },
-            "right" => self.right.coord = Coord { x, y },
-            _ => (),
-        }
+    fn iter(&self) -> impl Iterator<Item = &Move> {
+        [&self.up, &self.down, &self.left, &self.right].into_iter()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Move> {
+        [
+            &mut self.up,
+            &mut self.down,
+            &mut self.left,
+            &mut self.right,
+        ]
+        .into_iter()
     }
 }
 
@@ -104,14 +142,10 @@ pub fn end(game: &Game, turn: &i32, _board: &Board, _you: &Battlesnake) {
 pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> Value {
     info!("TURN {}", turn);
 
-    let mut potential_moves: PotentialMoves = PotentialMoves::new();
-    potential_moves.set_move_coord("up", you.head.x, you.head.y + 1);
-    potential_moves.set_move_coord("down", you.head.x, you.head.y - 1);
-    potential_moves.set_move_coord("left", you.head.x - 1, you.head.y);
-    potential_moves.set_move_coord("right", you.head.x + 1, you.head.y);
+    let mut potential_moves: PotentialMoves = PotentialMoves::new(you.head);
 
     // Determine immediate safety of each move
-    for mut pmove in potential_moves {
+    for pmove in potential_moves.iter_mut() {
         // Check if move is out of bounds
         if pmove.coord.x < 0
             || pmove.coord.x >= board.width
@@ -131,7 +165,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     }
 
     // Check if move is along the edge of the board, if yes reduce safety score by 1
-    for mut pmove in potential_moves {
+    for pmove in potential_moves.iter_mut() {
         if pmove.safety_score == 0 {
             continue;
         }
@@ -144,7 +178,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     }
 
     // Check if move is near head of other snakes, if yes reduce safety score by 1
-    for mut pmove in potential_moves {
+    for pmove in potential_moves.iter_mut() {
         if pmove.safety_score == 0 {
             continue;
         }
@@ -171,7 +205,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     }
 
     // Determine desirability of each move
-    for mut pmove in potential_moves {
+    for pmove in potential_moves.iter_mut() {
         if pmove.safety_score == 0 {
             continue;
         }
@@ -181,12 +215,12 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     // Choose the move with the highest desirability score
     let mut chosen: &str = "up";
     let mut highest_score: u8 = 0;
-    for pmove in potential_moves {
+    for pmove in potential_moves.iter_mut() {
         if pmove.safety_score == 0 {
             continue;
         }
         if pmove.desirability_score > highest_score {
-            chosen = pmove.direction;
+            chosen = pmove.direction.as_str();
             highest_score = pmove.desirability_score;
         }
     }
