@@ -236,8 +236,8 @@ pub struct Game {
 /// ```
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Board {
-    pub(super) height: i32,
-    pub(super) width: i32,
+    pub(super) height: u8,
+    pub(super) width: u8,
     pub(super) food: Vec<Coord>,
     pub(super) snakes: Vec<Battlesnake>,
     pub(super) hazards: Vec<Coord>,
