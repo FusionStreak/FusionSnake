@@ -328,8 +328,8 @@ pub struct Battlesnake {
 /// * `y` - The y-coordinate of the Coord. Example: 5
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Coord {
-    pub(super) x: i32,
-    pub(super) y: i32,
+    pub(super) x: i8,
+    pub(super) y: i8,
 }
 
 impl Coord {
