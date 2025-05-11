@@ -2,6 +2,6 @@ services:
   snek:
     build: .
     container_name: snek
-    command: bash -c "cargo run"
+    command: bash -c "fusion-snake"
     ports:
       - 6666:6666
