@@ -22,7 +22,9 @@ use std::string::String;
 /// ```
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RoyaleSettings {
-    pub(super) shrinkEveryNTurns: u32,
+    #[serde(rename = "shrinkEveryNTurns")]
+    /// The number of turns between generating new hazards (shrinking the safe board space).
+    pub(super) shrink_every_nturns: u32,
 }
 
 /// Squad settings object
@@ -52,10 +54,14 @@ pub struct RoyaleSettings {
 #[derive(Deserialize, Serialize, Debug)]
 
 pub struct SquadSettings {
-    pub(super) allowBodyCollisions: bool,
-    pub(super) sharedElimination: bool,
-    pub(super) sharedHealth: bool,
-    pub(super) sharedLength: bool,
+    #[serde(rename = "allowBodyCollisions")]
+    pub(super) allow_body_collisions: bool,
+    #[serde(rename = "sharedElimination")]
+    pub(super) shared_elimination: bool,
+    #[serde(rename = "sharedHealth")]
+    pub(super) shared_health: bool,
+    #[serde(rename = "sharedLength")]
+    pub(super) shared_length: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -101,9 +107,12 @@ pub struct SquadSettings {
 /// };
 /// ```
 pub struct RulesetSettings {
-    pub(super) foodSpawnChance: u32,
-    pub(super) minimumFood: u32,
-    pub(super) hazardDamagePerTurn: u32,
+    #[serde(rename = "foodSpawnChance")]
+    pub(super) food_spawn_chance: u32,
+    #[serde(rename = "minimumFood")]
+    pub(super) minimum_food: u32,
+    #[serde(rename = "hazardDamagePerTurn")]
+    pub(super) hazard_damage_per_turn: u32,
     pub(super) royale: RoyaleSettings,
     pub(super) squad: SquadSettings,
 }
