@@ -1,4 +1,4 @@
-FROM rust:1.79-slim as builder
+FROM rust:1.86-slim as builder
 
 COPY . /usr/app
 WORKDIR /usr/app

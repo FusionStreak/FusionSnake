@@ -1,6 +1,7 @@
 services:
   snek:
     build: .
+    container_name: snek
     command: bash -c "cargo run"
     ports:
       - 6666:6666
