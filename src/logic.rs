@@ -196,7 +196,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
             if snake.id == you.id {
                 continue;
             }
-            let head = snake.head;
+            let head: Coord = snake.head;
             if mv.coord.distance_to(&head) <= 2 {
                 mv.safety_score = mv.safety_score.saturating_sub(1);
             }
@@ -207,7 +207,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     let mut nearest_food: Coord = Coord { x: 0, y: 0 };
     let mut nearest_food_distance: u8 = u8::MAX;
     for food in &board.food {
-        let distance = you.head.distance_to(food);
+        let distance: u8 = you.head.distance_to(food);
         if distance < nearest_food_distance {
             nearest_food = *food;
             nearest_food_distance = distance;
@@ -219,11 +219,11 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         if mv.safety_score == 0 {
             continue;
         }
-        let distance = mv.coord.distance_to(&nearest_food);
+        let distance: u8 = mv.coord.distance_to(&nearest_food);
         mv.desirability_score = if distance >= 200 { 0 } else { 200 - distance };
     }
 
-    let chosen = potential_moves.choose_best_move();
+    let chosen: &'static str = potential_moves.choose_best_move();
 
     info!("MOVE {}", chosen);
     json!({ "move": chosen })
