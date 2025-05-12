@@ -143,8 +143,19 @@ pub fn start(game: &Game, _turn: &i32, _board: &Board, _you: &Battlesnake) {
 }
 
 // end is called when your Battlesnake finishes a game
-pub fn end(game: &Game, turn: &i32, _board: &Board, _you: &Battlesnake) {
-    info!("GAME OVER {}, Turn {}", game.id, turn);
+pub fn end(game: &Game, turn: &i32, board: &Board, _you: &Battlesnake) {
+    //determine winner
+    let mut winner: Option<String> = None;
+    for snake in &board.snakes {
+        if snake.health > 0 {
+            if winner.is_none() {
+                winner = Some(snake.name.clone());
+            } else {
+                winner = None;
+            }
+        }
+    }
+    info!("GAME OVER {}, Turn {}, Winner: {:?}", game.id, turn, winner);
 }
 
 // move is called on every turn and returns your next move
