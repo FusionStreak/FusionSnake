@@ -224,9 +224,6 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
             continue;
         }
         for snake in &board.snakes {
-            if snake.id == you.id {
-                continue;
-            }
             for coord in &snake.body {
                 let distance: u8 = mv.coord.distance_to(coord);
                 if distance < 2 {
