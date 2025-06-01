@@ -131,8 +131,8 @@ pub fn info() -> Value {
         "apiversion": "1",
         "author": "fusionstreak",
         "color": "#BF360C",
-        "head": "mlh-gene",
-        "tail": "mlh-gene",
+        "head": "crystal-power",
+        "tail": "crystal-power",
         "version": "0.0.1"
     });
 }
