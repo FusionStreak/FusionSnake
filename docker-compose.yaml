@@ -9,3 +9,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ./data:/data # Persist game stats across restarts
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=info
+      - STATS_FILE=/data/game_stats.json
