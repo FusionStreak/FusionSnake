@@ -143,19 +143,28 @@ pub fn start(game: &Game, _turn: &i32, _board: &Board, _you: &Battlesnake) {
 }
 
 // end is called when your Battlesnake finishes a game
-pub fn end(game: &Game, turn: &i32, board: &Board, _you: &Battlesnake) {
-    //determine winner
-    let mut winner: Option<String> = None;
-    for snake in &board.snakes {
-        if snake.health > 0 {
-            if winner.is_none() {
-                winner = Some(snake.name.clone());
-            } else {
-                winner = None;
-            }
-        }
-    }
+// Returns (won, is_draw) tuple
+pub fn end(game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> (bool, bool) {
+    // Determine winner
+    // Note: board.snakes only contains alive snakes (eliminated snakes are removed)
+    let you_alive = board.snakes.iter().any(|s| s.id == you.id);
+    let alive_count = board.snakes.len();
+
+    let (won, is_draw) = match alive_count {
+        0 => (false, true),      // All died simultaneously (draw)
+        1 => (you_alive, false), // One survivor (win if it's you)
+        _ => (false, false),     // Multiple survivors (shouldn't happen at game end)
+    };
+
+    let winner: Option<String> = if board.snakes.len() == 1 {
+        Some(board.snakes[0].name.clone())
+    } else {
+        None
+    };
+
     info!("GAME OVER {}, Turn {}, Winner: {:?}", game.id, turn, winner);
+
+    (won, is_draw)
 }
 
 // move is called on every turn and returns your next move

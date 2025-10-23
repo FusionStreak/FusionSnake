@@ -97,22 +97,7 @@ fn handle_move(move_req: Json<GameState>) -> Json<Value> {
 
 #[post("/end", format = "json", data = "<end_req>")]
 fn handle_end(end_req: Json<GameState>, stats: &State<SharedStats>) -> Status {
-    logic::end(&end_req.game, &end_req.turn, &end_req.board, &end_req.you);
-
-    // Determine game outcome
-    let you_alive = end_req.you.health > 0;
-    let alive_snakes: Vec<_> = end_req
-        .board
-        .snakes
-        .iter()
-        .filter(|s| s.health > 0)
-        .collect();
-
-    let (won, is_draw) = match alive_snakes.len() {
-        0 => (false, true),      // All died (draw)
-        1 => (you_alive, false), // One survivor
-        _ => (false, false),     // Multiple survivors (lost if we're not alive)
-    };
+    let (won, is_draw) = logic::end(&end_req.game, &end_req.turn, &end_req.board, &end_req.you);
 
     // Record the game
     let turns = end_req.turn as u32;
