@@ -9,7 +9,9 @@ mod game_objects;
 mod logic;
 mod stats;
 
-use stats::{SharedStats, create_shared_stats};
+use stats::{
+    ActiveGames, SharedStats, cleanup_stale_games, create_active_games, create_shared_stats,
+};
 
 // Middleware to add custom Server header
 use actix_web::Error;
@@ -87,6 +89,8 @@ async fn handle_stats(data: web::Data<SharedStats>) -> HttpResponse {
             "average_turns": format!("{:.1}", game_stats.average_turns()),
             "longest_game": game_stats.longest_game,
             "shortest_game": if game_stats.shortest_game == u32::MAX { 0 } else { game_stats.shortest_game },
+            "total_food_eaten": game_stats.total_food_eaten,
+            "average_food_eaten": format!("{:.1}", game_stats.average_food_eaten()),
             "last_played": game_stats.last_played
         }))
     } else {
@@ -96,7 +100,10 @@ async fn handle_stats(data: web::Data<SharedStats>) -> HttpResponse {
     }
 }
 
-async fn handle_start(game_state: web::Json<GameState>) -> HttpResponse {
+async fn handle_start(
+    game_state: web::Json<GameState>,
+    active_games: web::Data<ActiveGames>,
+) -> HttpResponse {
     logic::start(
         &game_state.game,
         &game_state.turn,
@@ -104,10 +111,29 @@ async fn handle_start(game_state: web::Json<GameState>) -> HttpResponse {
         &game_state.you,
     );
 
+    // Track this new game
+    if let Ok(mut games) = active_games.lock() {
+        games.insert(
+            game_state.game.id.clone(),
+            stats::ActiveGame {
+                last_turn: 0,
+                started_at: chrono::Utc::now(),
+                starting_length: game_state.you.length,
+            },
+        );
+
+        // Cleanup stale games (older than 6 hours)
+        drop(games); // Release the lock before cleanup
+        cleanup_stale_games(&active_games, 6 * 60 * 60);
+    }
+
     HttpResponse::Ok().finish()
 }
 
-async fn handle_move(game_state: web::Json<GameState>) -> HttpResponse {
+async fn handle_move(
+    game_state: web::Json<GameState>,
+    active_games: web::Data<ActiveGames>,
+) -> HttpResponse {
     let response = logic::get_move(
         &game_state.game,
         &game_state.turn,
@@ -115,12 +141,20 @@ async fn handle_move(game_state: web::Json<GameState>) -> HttpResponse {
         &game_state.you,
     );
 
+    // Update the last turn for this game
+    if let Ok(mut games) = active_games.lock() {
+        if let Some(game) = games.get_mut(&game_state.game.id) {
+            game.last_turn = game_state.turn as u32;
+        }
+    }
+
     HttpResponse::Ok().json(response)
 }
 
 async fn handle_end(
     game_state: web::Json<GameState>,
-    data: web::Data<SharedStats>,
+    stats_data: web::Data<SharedStats>,
+    active_games: web::Data<ActiveGames>,
 ) -> HttpResponse {
     let (won, is_draw) = logic::end(
         &game_state.game,
@@ -129,10 +163,26 @@ async fn handle_end(
         &game_state.you,
     );
 
-    // Record the game
-    let turns = game_state.turn as u32;
-    if let Ok(mut game_stats) = data.lock() {
-        game_stats.record_game(turns, won, is_draw);
+    // Get the accurate turn count and calculate food eaten
+    let (turns, food_eaten) = if let Ok(mut games) = active_games.lock() {
+        if let Some(game) = games.remove(&game_state.game.id) {
+            let turns = game.last_turn;
+            let food_eaten = game_state.you.length.saturating_sub(game.starting_length);
+            (turns, food_eaten)
+        } else {
+            // Fallback if game wasn't tracked (shouldn't happen)
+            log::warn!("Game {} not found in active games", game_state.game.id);
+            (game_state.turn as u32, 0)
+        }
+    } else {
+        // Fallback if lock fails
+        log::error!("Failed to acquire active games lock");
+        (game_state.turn as u32, 0)
+    };
+
+    // Record the game with accurate stats
+    if let Ok(mut game_stats) = stats_data.lock() {
+        game_stats.record_game(turns, food_eaten, won, is_draw);
         if let Err(e) = game_stats.save() {
             log::error!("Failed to save stats: {}", e);
         }
@@ -158,8 +208,9 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting Battlesnake Server on port {}...", port);
 
-    // Initialize shared stats
+    // Initialize shared stats and active games tracker
     let shared_stats = create_shared_stats();
+    let active_games = create_active_games();
 
     HttpServer::new(move || {
         // Configure CORS to allow requests from any origin
@@ -171,6 +222,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(web::Data::new(shared_stats.clone()))
+            .app_data(web::Data::new(active_games.clone()))
             .wrap(cors)
             .wrap(middleware::Logger::default())
             .wrap(ServerHeader)
