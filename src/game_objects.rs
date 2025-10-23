@@ -1,4 +1,4 @@
-use rocket::serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::string::String;
 
 /// Royale settings object
@@ -179,7 +179,7 @@ pub struct Ruleset {
 /// # Examples
 ///
 /// ```
-/// use rocket::serde::json::Json;
+/// use serde::json::Json;
 /// use serde_json::Value;
 /// use std::collections::HashMap;
 ///

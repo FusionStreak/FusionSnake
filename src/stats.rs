@@ -1,5 +1,5 @@
 use log::{error, info};
-use rocket::serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::Write;

@@ -2,20 +2,21 @@
 
 ## Project Overview
 
-This is a Battlesnake bot written in Rust using the Rocket web framework. The snake responds to REST API calls during games on play.battlesnake.com, making move decisions based on board state analysis.
+This is a Battlesnake bot written in Rust using the Actix Web framework. The snake responds to REST API calls during games on play.battlesnake.com, making move decisions based on board state analysis.
 
 ## Architecture & Data Flow
 
 ### Core Components
 
-- **`main.rs`**: Rocket HTTP server with 4 endpoints (`/`, `/start`, `/move`, `/end`)
+- **`main.rs`**: Actix Web HTTP server with 5 endpoints (`/`, `/start`, `/move`, `/end`, `/stats`)
 - **`game_objects.rs`**: Serde-based data structures matching Battlesnake API spec
 - **`logic.rs`**: Decision engine with safety scoring and food desirability algorithms
+- **`stats.rs`**: Game statistics tracking with JSON persistence
 
 ### Request Flow
 
 1. Battlesnake engine sends JSON GameState to `/move` endpoint
-2. `handle_move()` deserializes into `GameState` struct
+2. `handle_move()` deserializes into `GameState` struct via Actix Web extractors
 3. `logic::get_move()` evaluates all 4 directions using `PotentialMoves`
 4. Returns JSON with chosen direction: `{"move": "up|down|left|right"}`
 
@@ -60,14 +61,16 @@ Always iterate through `PotentialMoves` in this order:
 
 - `PORT`: Server port (default 6666)
 - `RUST_LOG`: Log level (default "info")
+- `STATS_FILE`: Path to stats JSON file (default "./data/stats.json")
 
 ## Development Workflows
 
 ### Local Testing
 
 ```bash
-cargo run  # Starts server on localhost:6666
+cargo run  # Starts server on 0.0.0.0:6666
 curl http://localhost:6666  # Returns snake metadata
+curl http://localhost:6666/stats  # Returns game statistics
 ```
 
 ### Docker Deployment
@@ -82,6 +85,7 @@ docker compose up -d  # Production deployment
 - **Add new penalty**: Modify safety_score in `logic.rs` move evaluation loop
 - **Change appearance**: Edit `logic::info()` JSON (color/head/tail must match Battlesnake API)
 - **Adjust aggression**: Modify `safety_weight`/`food_weight` ratio (currently 2:1 or 1:2)
+- **Add new endpoint**: Create async handler function and register with `.route()` in `main.rs`
 
 ## Testing Considerations
 
@@ -93,6 +97,9 @@ docker compose up -d  # Production deployment
 ## Project-Specific Notes
 
 - Edition 2024 in Cargo.toml (uses latest Rust features)
-- No async decision logic - all move calculations are synchronous
-- Rocket 0.5.1 with custom server header for identification
+- Actix Web 4.9+ for high-performance async HTTP server
+- No async decision logic - move calculations are synchronous within async handlers
+- Custom middleware for Server header identification
+- CORS configured via actix-cors to allow cross-origin requests
+- Stats persistence using Arc<Mutex<GameStats>> for thread-safe shared state
 - Original starter: BattlesnakeOfficial/starter-snake-rust

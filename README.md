@@ -1,6 +1,6 @@
 # FusionSnake
 
-FusionSnake is a [Battlesnake](https://play.battlesnake.com/) written in Rust. It is a simple snake that tries to avoid walls and other snakes, and tries to eat food.
+FusionSnake is a [Battlesnake](https://play.battlesnake.com/) written in Rust using the Actix Web framework. It is a simple snake that tries to avoid walls and other snakes, and tries to eat food.
 
 Feel free to use this snake as a starting point for your own snake, or to fork it and make it your own!
 

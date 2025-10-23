@@ -1,13 +1,8 @@
-#[macro_use]
-extern crate rocket;
-
+use actix_cors::Cors;
+use actix_web::{App, HttpResponse, HttpServer, middleware, web};
 use game_objects::GameState;
 use log::info;
-use rocket::fairing::AdHoc;
-use rocket::http::{Header, Status};
-use rocket::serde::json::Json;
-use rocket::{Request, Response, State};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::env;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod game_objects;
@@ -16,40 +11,73 @@ mod stats;
 
 use stats::{SharedStats, create_shared_stats};
 
+// Middleware to add custom Server header
+use actix_web::Error;
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use futures_util::future::LocalBoxFuture;
+use std::future::{Ready, ready};
+
+pub struct ServerHeader;
+
+impl<S, B> Transform<S, ServiceRequest> for ServerHeader
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = ServerHeaderMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(ServerHeaderMiddleware { service }))
+    }
+}
+
+pub struct ServerHeaderMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<ServiceRequest> for ServerHeaderMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    actix_web::dev::forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let fut = self.service.call(req);
+
+        Box::pin(async move {
+            let mut res = fut.await?;
+            res.headers_mut().insert(
+                actix_web::http::header::SERVER,
+                actix_web::http::header::HeaderValue::from_static(
+                    "battlesnake/github/starter-snake-rust",
+                ),
+            );
+            Ok(res)
+        })
+    }
+}
+
 // API and Response Objects
 // See https://docs.battlesnake.com/api
 
-#[get("/")]
-fn handle_index() -> Json<Value> {
-    Json(logic::info())
+async fn handle_index() -> HttpResponse {
+    HttpResponse::Ok().json(logic::info())
 }
 
-// CORS Fairing to allow cross-origin requests from portfolio website
-pub struct Cors;
-
-#[rocket::async_trait]
-impl rocket::fairing::Fairing for Cors {
-    fn info(&self) -> rocket::fairing::Info {
-        rocket::fairing::Info {
-            name: "Add CORS headers to responses",
-            kind: rocket::fairing::Kind::Response,
-        }
-    }
-
-    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
-        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new(
-            "Access-Control-Allow-Methods",
-            "GET, POST, OPTIONS",
-        ));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "Content-Type"));
-    }
-}
-
-#[get("/stats")]
-fn handle_stats(stats: &State<SharedStats>) -> Json<Value> {
-    if let Ok(game_stats) = stats.lock() {
-        Json(json!({
+async fn handle_stats(data: web::Data<SharedStats>) -> HttpResponse {
+    if let Ok(game_stats) = data.lock() {
+        HttpResponse::Ok().json(json!({
             "total_games": game_stats.total_games,
             "wins": game_stats.wins,
             "losses": game_stats.losses,
@@ -62,57 +90,59 @@ fn handle_stats(stats: &State<SharedStats>) -> Json<Value> {
             "last_played": game_stats.last_played
         }))
     } else {
-        Json(json!({
+        HttpResponse::InternalServerError().json(json!({
             "error": "Failed to acquire stats lock"
         }))
     }
 }
 
-#[post("/start", format = "json", data = "<start_req>")]
-fn handle_start(start_req: Json<GameState>, _stats: &State<SharedStats>) -> Status {
+async fn handle_start(game_state: web::Json<GameState>) -> HttpResponse {
     logic::start(
-        &start_req.game,
-        &start_req.turn,
-        &start_req.board,
-        &start_req.you,
+        &game_state.game,
+        &game_state.turn,
+        &game_state.board,
+        &game_state.you,
     );
 
-    // Initialize game tracking if needed in the future
-    // For now, we just acknowledge the start
-
-    Status::Ok
+    HttpResponse::Ok().finish()
 }
 
-#[post("/move", format = "json", data = "<move_req>")]
-fn handle_move(move_req: Json<GameState>) -> Json<Value> {
+async fn handle_move(game_state: web::Json<GameState>) -> HttpResponse {
     let response = logic::get_move(
-        &move_req.game,
-        &move_req.turn,
-        &move_req.board,
-        &move_req.you,
+        &game_state.game,
+        &game_state.turn,
+        &game_state.board,
+        &game_state.you,
     );
 
-    Json(response)
+    HttpResponse::Ok().json(response)
 }
 
-#[post("/end", format = "json", data = "<end_req>")]
-fn handle_end(end_req: Json<GameState>, stats: &State<SharedStats>) -> Status {
-    let (won, is_draw) = logic::end(&end_req.game, &end_req.turn, &end_req.board, &end_req.you);
+async fn handle_end(
+    game_state: web::Json<GameState>,
+    data: web::Data<SharedStats>,
+) -> HttpResponse {
+    let (won, is_draw) = logic::end(
+        &game_state.game,
+        &game_state.turn,
+        &game_state.board,
+        &game_state.you,
+    );
 
     // Record the game
-    let turns = end_req.turn as u32;
-    if let Ok(mut game_stats) = stats.lock() {
+    let turns = game_state.turn as u32;
+    if let Ok(mut game_stats) = data.lock() {
         game_stats.record_game(turns, won, is_draw);
         if let Err(e) = game_stats.save() {
             log::error!("Failed to save stats: {}", e);
         }
     }
 
-    Status::Ok
+    HttpResponse::Ok().finish()
 }
 
-#[launch]
-fn rocket() -> _ {
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
     let port = env::var("PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
@@ -126,28 +156,31 @@ fn rocket() -> _ {
         .with(tracing_subscriber::EnvFilter::new(log_level))
         .init();
 
-    info!("Starting Battlesnake Server...");
+    info!("Starting Battlesnake Server on port {}...", port);
 
     // Initialize shared stats
     let shared_stats = create_shared_stats();
 
-    // Build the Rocket instance with the specified port.
-    rocket::custom(rocket::Config::figment().merge(("port", port)))
-        .attach(AdHoc::on_response("Server ID Middleware", |_, res| {
-            Box::pin(async move {
-                res.set_raw_header("Server", "battlesnake/github/starter-snake-rust");
-            })
-        }))
-        .attach(Cors)
-        .manage(shared_stats)
-        .mount(
-            "/",
-            routes![
-                handle_index,
-                handle_start,
-                handle_move,
-                handle_end,
-                handle_stats
-            ],
-        )
+    HttpServer::new(move || {
+        // Configure CORS to allow requests from any origin
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_headers(vec![actix_web::http::header::CONTENT_TYPE])
+            .max_age(3600);
+
+        App::new()
+            .app_data(web::Data::new(shared_stats.clone()))
+            .wrap(cors)
+            .wrap(middleware::Logger::default())
+            .wrap(ServerHeader)
+            .route("/", web::get().to(handle_index))
+            .route("/stats", web::get().to(handle_stats))
+            .route("/start", web::post().to(handle_start))
+            .route("/move", web::post().to(handle_move))
+            .route("/end", web::post().to(handle_end))
+    })
+    .bind(("0.0.0.0", port))?
+    .run()
+    .await
 }
