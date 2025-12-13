@@ -54,7 +54,7 @@ pub fn cleanup_stale_games(active_games: &ActiveGames, max_age_seconds: i64) {
 
         let removed = initial_count - games.len();
         if removed > 0 {
-            info!("Cleaned up {} stale games", removed);
+            info!("Cleaned up {removed} stale games");
         }
     }
 }
@@ -83,7 +83,7 @@ pub struct GameStats {
 }
 
 impl GameStats {
-    /// Create a new GameStats with default values
+    /// Create a new `GameStats` with default values
     pub fn new() -> Self {
         Self {
             total_games: 0,
@@ -103,28 +103,27 @@ impl GameStats {
         let stats_file = get_stats_file();
 
         // Ensure data directory exists
-        if let Some(parent) = Path::new(&stats_file).parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
-                error!("Failed to create data directory: {}", e);
-                return Self::new();
-            }
+        if let Some(parent) = Path::new(&stats_file).parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            error!("Failed to create data directory: {e}");
+            return Self::new();
         }
 
-        match fs::read_to_string(&stats_file) {
-            Ok(contents) => match serde_json::from_str(&contents) {
+        if let Ok(contents) = fs::read_to_string(&stats_file) {
+            match serde_json::from_str(&contents) {
                 Ok(stats) => {
-                    info!("Loaded stats from {}", stats_file);
+                    info!("Loaded stats from {stats_file}");
                     stats
                 }
                 Err(e) => {
-                    error!("Failed to parse stats file: {}. Creating new stats.", e);
+                    error!("Failed to parse stats file: {e}. Creating new stats.");
                     Self::new()
                 }
-            },
-            Err(_) => {
-                info!("Stats file not found. Creating new stats.");
-                Self::new()
             }
+        } else {
+            info!("Stats file not found. Creating new stats.");
+            Self::new()
         }
     }
 
@@ -132,7 +131,7 @@ impl GameStats {
     pub fn save(&self) -> Result<(), std::io::Error> {
         let stats_file = get_stats_file();
         let json = serde_json::to_string_pretty(self)?;
-        let temp_file = format!("{}.tmp", stats_file);
+        let temp_file = format!("{stats_file}.tmp");
 
         // Write to temporary file
         let mut file = fs::File::create(&temp_file)?;
@@ -141,15 +140,15 @@ impl GameStats {
 
         // Atomic rename
         fs::rename(&temp_file, &stats_file)?;
-        info!("Stats saved to {}", stats_file);
+        info!("Stats saved to {stats_file}");
         Ok(())
     }
 
     /// Record a game result
     pub fn record_game(&mut self, turns: u32, food_eaten: u32, won: bool, is_draw: bool) {
         self.total_games += 1;
-        self.total_turns += turns as u64;
-        self.total_food_eaten += food_eaten as u64;
+        self.total_turns += u64::from(turns);
+        self.total_food_eaten += u64::from(food_eaten);
 
         if is_draw {
             self.draws += 1;
@@ -172,6 +171,7 @@ impl GameStats {
     }
 
     /// Calculate win rate as a percentage
+    #[allow(clippy::cast_precision_loss)]
     pub fn win_rate(&self) -> f64 {
         if self.total_games == 0 {
             return 0.0;
@@ -180,6 +180,7 @@ impl GameStats {
     }
 
     /// Calculate average turns per game
+    #[allow(clippy::cast_precision_loss)]
     pub fn average_turns(&self) -> f64 {
         if self.total_games == 0 {
             return 0.0;
@@ -188,6 +189,7 @@ impl GameStats {
     }
 
     /// Calculate average food eaten per game
+    #[allow(clippy::cast_precision_loss)]
     pub fn average_food_eaten(&self) -> f64 {
         if self.total_games == 0 {
             return 0.0;
