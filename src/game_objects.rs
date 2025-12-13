@@ -51,6 +51,7 @@ pub struct RoyaleSettings {
 ///     shared_length: true,
 /// };
 /// ```
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Deserialize, Serialize, Debug)]
 
 pub struct SquadSettings {
@@ -270,7 +271,7 @@ pub struct Customization {
 /// # Attributes
 ///
 /// * `id` - Unique identifier for this Battlesnake in the context of the current Game.Example: "totally-unique-snake-id"
-/// * `name` - Name given to this Battlesnake by its author.Example: "Sneky McSnek Face"
+/// * `name` - Name given to this Battlesnake by its author.Example: "Sneky `McSnek` Face"
 /// * `health` - Health value of this Battlesnake, between 0 and 100 inclusively.Example: 54
 /// * `body` - Array of coordinates representing this Battlesnake's location on the game board. This array is ordered from head to tail.Example: [{"x": 0, "y": 0}, ..., {"x": 2, "y": 0}]
 /// * `head` - Coordinates for this Battlesnake's head. Equivalent to the first element of the body array.Example: {"x": 0, "y": 0}
@@ -333,22 +334,22 @@ pub struct Coord {
 }
 
 impl Coord {
-    pub fn distance_to(&self, other: &Coord) -> u8 {
+    pub fn distance_to(self, other: Coord) -> u8 {
         ((self.x - other.x).abs() + (self.y - other.y).abs())
             .try_into()
             .unwrap()
     }
 }
-/// GameState object
+/// `GameState` object
 ///
-/// This object contains the game, turn, board, and you of the GameState.
+/// This object contains the game, turn, board, and you of the `GameState`.
 ///
 /// # Attributes
 ///
-/// * `game` - The game object of the GameState.
-/// * `turn` - The turn of the GameState.
-/// * `board` - The board object of the GameState.
-/// * `you` - The Battlesnake object of the GameState.
+/// * `game` - The game object of the `GameState`.
+/// * `turn` - The turn of the `GameState`.
+/// * `board` - The board object of the `GameState`.
+/// * `you` - The Battlesnake object of the `GameState`.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct GameState {
     pub(super) game: Game,
