@@ -3,8 +3,14 @@ name: Clippy
 on:
     push:
         branches: ["main"]
+        paths:
+            - "**/*.rs"
+            - "**/*.toml"
     pull_request:
         branches: ["main"]
+        paths:
+            - "**/*.rs"
+            - "**/*.toml"
 
 jobs:
     clippy:
