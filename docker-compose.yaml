@@ -1,6 +1,6 @@
 services:
   snek:
-    image: ghcr.io/fusion-snake/fusion-snake:latest
+    image: ghcr.io/fusionstreak/fusionsnake:latest
     container_name: snek
     command: bash -c "fusion-snake"
     ports:
