@@ -43,7 +43,7 @@ enum Direction {
 }
 
 impl Direction {
-    fn as_str(&self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Direction::Up => "up",
             Direction::Down => "down",
@@ -113,11 +113,10 @@ impl PotentialMoves {
         self.iter()
             .filter(|m| m.safety_score > 0)
             .max_by_key(|m| {
-                (m.safety_score as u16 * safety_weight)
-                    + (m.desirability_score as u16 * food_weight)
+                (u16::from(m.safety_score) * safety_weight)
+                    + (u16::from(m.desirability_score) * food_weight)
             })
-            .map(|m| m.direction.as_str())
-            .unwrap_or("up")
+            .map_or("up", |m| m.direction.as_str())
     }
 }
 
@@ -127,24 +126,24 @@ impl PotentialMoves {
 pub fn info() -> Value {
     info!("INFO");
 
-    return json!({
+    json!({
         "apiversion": "1",
         "author": "fusionstreak",
         "color": "#BF360C",
         "head": "crystal-power",
         "tail": "crystal-power",
         "version": "0.0.1"
-    });
+    })
 }
 
 // start is called when your Battlesnake begins a game
-pub fn start(game: &Game, _turn: &i32, _board: &Board, _you: &Battlesnake) {
+pub fn start(game: &Game, _turn: i32, _board: &Board, _you: &Battlesnake) {
     info!("GAME START {}", game.id);
 }
 
 // end is called when your Battlesnake finishes a game
 // Returns (won, is_draw) tuple
-pub fn end(game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> (bool, bool) {
+pub fn end(game: &Game, turn: i32, board: &Board, you: &Battlesnake) -> (bool, bool) {
     // Determine winner
     // Note: board.snakes only contains alive snakes (eliminated snakes are removed)
     let you_alive = board.snakes.iter().any(|s| s.id == you.id);
@@ -170,8 +169,8 @@ pub fn end(game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> (bool, 
 // move is called on every turn and returns your next move
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
-pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> Value {
-    info!("TURN {}", turn);
+pub fn get_move(_game: &Game, turn: i32, board: &Board, you: &Battlesnake) -> Value {
+    info!("TURN {turn}");
 
     let mut potential_moves: PotentialMoves = PotentialMoves::new(you.head);
 
@@ -179,9 +178,9 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     for mv in potential_moves.iter_mut() {
         // Check if move is out of bounds
         if mv.coord.x < 0
-            || mv.coord.x >= board.width as i8
+            || mv.coord.x >= board.width.cast_signed()
             || mv.coord.y < 0
-            || mv.coord.y >= board.height as i8
+            || mv.coord.y >= board.height.cast_signed()
         {
             mv.safety_score = 0;
             continue;
@@ -202,10 +201,10 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         if mv.safety_score == 0 {
             continue;
         }
-        if mv.coord.x <= 1 || mv.coord.x >= (board.width - 2) as i8 {
+        if mv.coord.x <= 1 || mv.coord.x >= (board.width - 2).cast_signed() {
             mv.safety_score = mv.safety_score.saturating_sub(1);
         }
-        if mv.coord.y <= 1 || mv.coord.y >= (board.height - 2) as i8 {
+        if mv.coord.y <= 1 || mv.coord.y >= (board.height - 2).cast_signed() {
             mv.safety_score = mv.safety_score.saturating_sub(1);
         }
     }
@@ -220,7 +219,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
                 continue;
             }
             let head: Coord = snake.head;
-            let distance: u8 = mv.coord.distance_to(&head);
+            let distance: u8 = mv.coord.distance_to(head);
             if distance < 2 {
                 mv.safety_score = mv.safety_score.saturating_sub(4);
             }
@@ -234,7 +233,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         }
         for snake in &board.snakes {
             for coord in &snake.body {
-                let distance: u8 = mv.coord.distance_to(coord);
+                let distance: u8 = mv.coord.distance_to(*coord);
                 if distance < 2 {
                     mv.safety_score = mv.safety_score.saturating_sub(2);
                 }
@@ -246,7 +245,7 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
     let mut nearest_food: Coord = Coord { x: 0, y: 0 };
     let mut nearest_food_distance: u8 = u8::MAX;
     for food in &board.food {
-        let distance: u8 = you.head.distance_to(food);
+        let distance: u8 = you.head.distance_to(*food);
         if distance < nearest_food_distance {
             nearest_food = *food;
             nearest_food_distance = distance;
@@ -258,8 +257,8 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
         if mv.safety_score == 0 {
             continue;
         }
-        let distance: u8 = mv.coord.distance_to(&nearest_food);
-        mv.desirability_score = if distance >= 200 { 0 } else { 200 - distance };
+        let distance: u8 = mv.coord.distance_to(nearest_food);
+        mv.desirability_score = 200u8.saturating_sub(distance);
     }
 
     // Balance weights based on health
@@ -267,6 +266,6 @@ pub fn get_move(_game: &Game, turn: &i32, board: &Board, you: &Battlesnake) -> V
 
     let chosen = potential_moves.choose_best_move_weighted(safety_weight, food_weight);
 
-    info!("MOVE {}", chosen);
+    info!("MOVE {chosen}");
     json!({ "move": chosen })
 }
