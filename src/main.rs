@@ -106,7 +106,7 @@ async fn handle_start(
 ) -> HttpResponse {
     logic::start(
         &game_state.game,
-        &game_state.turn,
+        game_state.turn,
         &game_state.board,
         &game_state.you,
     );
@@ -136,16 +136,16 @@ async fn handle_move(
 ) -> HttpResponse {
     let response = logic::get_move(
         &game_state.game,
-        &game_state.turn,
+        game_state.turn,
         &game_state.board,
         &game_state.you,
     );
 
     // Update the last turn for this game
-    if let Ok(mut games) = active_games.lock() {
-        if let Some(game) = games.get_mut(&game_state.game.id) {
-            game.last_turn = game_state.turn as u32;
-        }
+    if let Ok(mut games) = active_games.lock()
+        && let Some(game) = games.get_mut(&game_state.game.id)
+    {
+        game.last_turn = game_state.turn.cast_unsigned();
     }
 
     HttpResponse::Ok().json(response)
@@ -158,7 +158,7 @@ async fn handle_end(
 ) -> HttpResponse {
     let (won, is_draw) = logic::end(
         &game_state.game,
-        &game_state.turn,
+        game_state.turn,
         &game_state.board,
         &game_state.you,
     );
@@ -172,19 +172,19 @@ async fn handle_end(
         } else {
             // Fallback if game wasn't tracked (shouldn't happen)
             log::warn!("Game {} not found in active games", game_state.game.id);
-            (game_state.turn as u32, 0)
+            (game_state.turn.cast_unsigned(), 0)
         }
     } else {
         // Fallback if lock fails
         log::error!("Failed to acquire active games lock");
-        (game_state.turn as u32, 0)
+        (game_state.turn.cast_unsigned(), 0)
     };
 
     // Record the game with accurate stats
     if let Ok(mut game_stats) = stats_data.lock() {
         game_stats.record_game(turns, food_eaten, won, is_draw);
         if let Err(e) = game_stats.save() {
-            log::error!("Failed to save stats: {}", e);
+            log::error!("Failed to save stats: {e}");
         }
     }
 
@@ -206,7 +206,7 @@ async fn main() -> std::io::Result<()> {
         .with(tracing_subscriber::EnvFilter::new(log_level))
         .init();
 
-    info!("Starting Battlesnake Server on port {}...", port);
+    info!("Starting Battlesnake Server on port {port}...");
 
     // Initialize shared stats and active games tracker
     let shared_stats = create_shared_stats();
