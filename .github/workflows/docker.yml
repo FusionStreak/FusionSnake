@@ -3,9 +3,24 @@ name: Build and Publish Docker
 on:
     push:
         branches: ["main"]
+        # Build/publish only when relevant files change
+        paths:
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "rust-toolchain.toml"
+            - "src/**"
+            - ".cargo/**"
+            - "Dockerfile"
         tags: ["v*"]
     pull_request:
         branches: ["main"]
+        paths:
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "rust-toolchain.toml"
+            - "src/**"
+            - ".cargo/**"
+            - "Dockerfile"
 
 permissions:
     contents: read
