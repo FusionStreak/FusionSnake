@@ -1,33 +1,35 @@
 name: Clippy
 
 on:
-    push:
-        branches: ["main"]
-        paths:
-            - "**/*.rs"
-            - "**/*.toml"
-    pull_request:
-        branches: ["main"]
-        paths:
-            - "**/*.rs"
-            - "**/*.toml"
+  push:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+      - "Cargo.lock"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+      - "Cargo.lock"
 
 jobs:
-    clippy:
-        name: Run cargo clippy
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+  clippy:
+    name: Run cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Set up Rust
-              uses: dtolnay/rust-toolchain@master
-              with:
-                  toolchain: 1.92
-                  components: clippy
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92
+          components: clippy
 
-            - name: Cache cargo builds
-              uses: Swatinem/rust-cache@v2
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
 
-            - name: Lint with clippy
-              run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Lint with clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
