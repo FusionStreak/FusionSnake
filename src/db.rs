@@ -17,6 +17,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::logic::MoveFeatures;
+use crate::responses;
 
 // ---------------------------------------------------------------------------
 // Pool initialisation
@@ -420,9 +421,9 @@ pub async fn record_game(pool: &SqlitePool, turns: u32, food_eaten: u32, won: bo
 // Query helpers (for API endpoints)
 // ---------------------------------------------------------------------------
 
-/// Fetch aggregate stats as a JSON-friendly struct.
+/// Fetch aggregate stats as a typed struct.
 #[allow(clippy::cast_precision_loss)]
-pub async fn get_stats(pool: &SqlitePool) -> serde_json::Value {
+pub async fn get_stats(pool: &SqlitePool) -> Result<responses::StatsResponse, String> {
     match sqlx::query(
         r"
         SELECT total_games, wins, losses, draws, total_turns,
@@ -460,24 +461,28 @@ pub async fn get_stats(pool: &SqlitePool) -> serde_json::Value {
                 0.0
             };
 
-            serde_json::json!({
-                "total_games": total_games,
-                "wins": wins,
-                "losses": losses,
-                "draws": draws,
-                "win_rate": format!("{win_rate:.1}"),
-                "total_turns": total_turns,
-                "average_turns": format!("{avg_turns:.1}"),
-                "longest_game": longest_game,
-                "shortest_game": if shortest_game == i64::from(i32::MAX) { 0 } else { shortest_game },
-                "total_food_eaten": total_food_eaten,
-                "average_food_eaten": format!("{avg_food:.1}"),
-                "last_played": last_played,
+            Ok(responses::StatsResponse {
+                total_games,
+                wins,
+                losses,
+                draws,
+                win_rate: format!("{win_rate:.1}"),
+                total_turns,
+                average_turns: format!("{avg_turns:.1}"),
+                longest_game,
+                shortest_game: if shortest_game == i64::from(i32::MAX) {
+                    0
+                } else {
+                    shortest_game
+                },
+                total_food_eaten,
+                average_food_eaten: format!("{avg_food:.1}"),
+                last_played,
             })
         }
         Err(e) => {
             error!("Failed to fetch game_stats: {e}");
-            serde_json::json!({ "error": "Failed to fetch stats" })
+            Err("Failed to fetch stats".to_string())
         }
     }
 }
@@ -488,7 +493,7 @@ pub async fn get_turns(
     game_id: Option<&str>,
     limit: i64,
     offset: i64,
-) -> serde_json::Value {
+) -> Result<responses::PaginatedTurns, String> {
     let result = if let Some(gid) = game_id {
         sqlx::query(
             r"
@@ -516,59 +521,65 @@ pub async fn get_turns(
 
     match result {
         Ok(rows) => {
-            let records: Vec<serde_json::Value> = rows
+            let records: Vec<responses::TurnRecord> = rows
                 .iter()
-                .map(|r| {
-                    serde_json::json!({
-                        "id": r.get::<i64, _>("id"),
-                        "game_id": r.get::<String, _>("game_id"),
-                        "turn": r.get::<i32, _>("turn"),
-                        "health": r.get::<i64, _>("health"),
-                        "length": r.get::<i64, _>("length"),
-                        "head_x": r.get::<i32, _>("head_x"),
-                        "head_y": r.get::<i32, _>("head_y"),
-                        "board_width": r.get::<i32, _>("board_width"),
-                        "board_height": r.get::<i32, _>("board_height"),
-                        "num_snakes": r.get::<i64, _>("num_snakes"),
-                        "num_food": r.get::<i64, _>("num_food"),
-                        "num_hazards": r.get::<i64, _>("num_hazards"),
-                        "hazard_damage_per_turn": r.get::<i64, _>("hazard_damage_per_turn"),
-                        "target_food_distance": r.get::<i32, _>("target_food_distance"),
-                        "target_food_contested": r.get::<bool, _>("target_food_contested"),
-                        "max_enemy_length": r.get::<i64, _>("max_enemy_length"),
-                        "min_enemy_length": r.get::<i64, _>("min_enemy_length"),
-                        "length_advantage": r.get::<i32, _>("length_advantage"),
-                        "up_safety": r.get::<i32, _>("up_safety"),
-                        "up_desirability": r.get::<i32, _>("up_desirability"),
-                        "up_space": r.get::<i64, _>("up_space"),
-                        "down_safety": r.get::<i32, _>("down_safety"),
-                        "down_desirability": r.get::<i32, _>("down_desirability"),
-                        "down_space": r.get::<i64, _>("down_space"),
-                        "left_safety": r.get::<i32, _>("left_safety"),
-                        "left_desirability": r.get::<i32, _>("left_desirability"),
-                        "left_space": r.get::<i64, _>("left_space"),
-                        "right_safety": r.get::<i32, _>("right_safety"),
-                        "right_desirability": r.get::<i32, _>("right_desirability"),
-                        "right_space": r.get::<i64, _>("right_space"),
-                        "chosen_move": r.get::<String, _>("chosen_move"),
-                        "safety_weight": r.get::<i32, _>("safety_weight"),
-                        "food_weight": r.get::<i32, _>("food_weight"),
-                        "space_weight": r.get::<i32, _>("space_weight"),
-                        "recorded_at": r.get::<String, _>("recorded_at"),
-                    })
+                .map(|r| responses::TurnRecord {
+                    id: r.get("id"),
+                    game_id: r.get("game_id"),
+                    turn: r.get("turn"),
+                    health: r.get("health"),
+                    length: r.get("length"),
+                    head_x: r.get("head_x"),
+                    head_y: r.get("head_y"),
+                    board_width: r.get("board_width"),
+                    board_height: r.get("board_height"),
+                    num_snakes: r.get("num_snakes"),
+                    num_food: r.get("num_food"),
+                    num_hazards: r.get("num_hazards"),
+                    hazard_damage_per_turn: r.get("hazard_damage_per_turn"),
+                    target_food_distance: r.get("target_food_distance"),
+                    target_food_contested: r.get("target_food_contested"),
+                    max_enemy_length: r.get("max_enemy_length"),
+                    min_enemy_length: r.get("min_enemy_length"),
+                    length_advantage: r.get("length_advantage"),
+                    up_safety: r.get("up_safety"),
+                    up_desirability: r.get("up_desirability"),
+                    up_space: r.get("up_space"),
+                    down_safety: r.get("down_safety"),
+                    down_desirability: r.get("down_desirability"),
+                    down_space: r.get("down_space"),
+                    left_safety: r.get("left_safety"),
+                    left_desirability: r.get("left_desirability"),
+                    left_space: r.get("left_space"),
+                    right_safety: r.get("right_safety"),
+                    right_desirability: r.get("right_desirability"),
+                    right_space: r.get("right_space"),
+                    chosen_move: r.get("chosen_move"),
+                    safety_weight: r.get("safety_weight"),
+                    food_weight: r.get("food_weight"),
+                    space_weight: r.get("space_weight"),
+                    recorded_at: r.get("recorded_at"),
                 })
                 .collect();
-            serde_json::json!({ "data": records, "count": records.len() })
+            let count = records.len();
+            Ok(responses::PaginatedTurns {
+                data: records,
+                count,
+            })
         }
         Err(e) => {
             error!("Failed to query turns: {e}");
-            serde_json::json!({ "error": "Failed to query turns" })
+            Err("Failed to query turns".to_string())
         }
     }
 }
 
 /// Paginated game outcomes.
-pub async fn get_outcomes(pool: &SqlitePool, limit: i64, offset: i64) -> serde_json::Value {
+pub async fn get_outcomes(
+    pool: &SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<responses::PaginatedOutcomes, String> {
     match sqlx::query(
         r"
         SELECT * FROM outcomes
@@ -581,78 +592,56 @@ pub async fn get_outcomes(pool: &SqlitePool, limit: i64, offset: i64) -> serde_j
     .await
     {
         Ok(rows) => {
-            let records: Vec<serde_json::Value> = rows
+            let records: Vec<responses::OutcomeRecord> = rows
                 .iter()
-                .map(|r| {
-                    serde_json::json!({
-                        "game_id": r.get::<String, _>("game_id"),
-                        "won": r.get::<bool, _>("won"),
-                        "is_draw": r.get::<bool, _>("is_draw"),
-                        "total_turns": r.get::<i64, _>("total_turns"),
-                        "total_food_eaten": r.get::<i64, _>("total_food_eaten"),
-                        "recorded_at": r.get::<String, _>("recorded_at"),
-                    })
+                .map(|r| responses::OutcomeRecord {
+                    game_id: r.get("game_id"),
+                    won: r.get("won"),
+                    is_draw: r.get("is_draw"),
+                    total_turns: r.get("total_turns"),
+                    total_food_eaten: r.get("total_food_eaten"),
+                    recorded_at: r.get("recorded_at"),
                 })
                 .collect();
-            serde_json::json!({ "data": records, "count": records.len() })
+            let count = records.len();
+            Ok(responses::PaginatedOutcomes {
+                data: records,
+                count,
+            })
         }
         Err(e) => {
             error!("Failed to query outcomes: {e}");
-            serde_json::json!({ "error": "Failed to query outcomes" })
+            Err("Failed to query outcomes".to_string())
         }
     }
 }
 
-/// Helper to convert a SQL row into a JSON object with the relevant fields for the training summary.
+/// Convert an aggregated SQL row into a [`TrainingAverages`] struct.
 ///
-/// This is used to avoid code duplication when fetching the overall, won, and lost averages in `get_training_summary`.
-///
-/// The input row is expected to have the following columns:
-/// - `total_turns`
-/// - `avg_health`
-/// - `avg_length`
-/// - `avg_up_safety`
-/// - `avg_down_safety`
-/// - `avg_left_safety`
-/// - `avg_right_safety`
-/// - `avg_up_space`
-/// - `avg_down_space`
-/// - `avg_left_space`
-/// - `avg_right_space`
-/// - `avg_food_distance`
-/// - `avg_length_advantage`
-///
-/// The output JSON will have the same fields with their respective values.
-///
-/// # Args
-///
-/// - `row`: A reference to a `SqliteRow` containing the aggregated training data.
-///
-/// # Returns
-///
-/// A `serde_json::Value` object with the relevant fields extracted from the input row.
-fn row_to_json(row: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
-    serde_json::json!({
-        "total_turns":          row.get::<i64, _>("total_turns"),
-        "avg_health":           row.get::<f64, _>("avg_health"),
-        "avg_length":           row.get::<f64, _>("avg_length"),
-        "avg_up_safety":        row.get::<f64, _>("avg_up_safety"),
-        "avg_down_safety":      row.get::<f64, _>("avg_down_safety"),
-        "avg_left_safety":      row.get::<f64, _>("avg_left_safety"),
-        "avg_right_safety":     row.get::<f64, _>("avg_right_safety"),
-        "avg_up_space":         row.get::<f64, _>("avg_up_space"),
-        "avg_down_space":       row.get::<f64, _>("avg_down_space"),
-        "avg_left_space":       row.get::<f64, _>("avg_left_space"),
-        "avg_right_space":      row.get::<f64, _>("avg_right_space"),
-        "avg_food_distance":    row.get::<f64, _>("avg_food_distance"),
-        "avg_length_advantage": row.get::<f64, _>("avg_length_advantage"),
-    })
+/// Uses `try_get` with defaults so that `NULL` values from empty tables
+/// are gracefully handled instead of panicking.
+fn row_to_averages(row: &sqlx::sqlite::SqliteRow) -> responses::TrainingAverages {
+    responses::TrainingAverages {
+        total_turns: row.try_get("total_turns").unwrap_or(0),
+        avg_health: row.try_get("avg_health").unwrap_or(0.0),
+        avg_length: row.try_get("avg_length").unwrap_or(0.0),
+        avg_up_safety: row.try_get("avg_up_safety").unwrap_or(0.0),
+        avg_down_safety: row.try_get("avg_down_safety").unwrap_or(0.0),
+        avg_left_safety: row.try_get("avg_left_safety").unwrap_or(0.0),
+        avg_right_safety: row.try_get("avg_right_safety").unwrap_or(0.0),
+        avg_up_space: row.try_get("avg_up_space").unwrap_or(0.0),
+        avg_down_space: row.try_get("avg_down_space").unwrap_or(0.0),
+        avg_left_space: row.try_get("avg_left_space").unwrap_or(0.0),
+        avg_right_space: row.try_get("avg_right_space").unwrap_or(0.0),
+        avg_food_distance: row.try_get("avg_food_distance").unwrap_or(0.0),
+        avg_length_advantage: row.try_get("avg_length_advantage").unwrap_or(0.0),
+    }
 }
 
 /// Aggregate summary useful for dashboards and quick ML feature analysis:
 /// average scores per direction, win-correlated averages, etc.
 #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
-pub async fn get_training_summary(pool: &SqlitePool) -> serde_json::Value {
+pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSummary {
     // Overall averages across all turns
     let overall = sqlx::query(
         r"
@@ -727,35 +716,36 @@ pub async fn get_training_summary(pool: &SqlitePool) -> serde_json::Value {
     .fetch_one(pool)
     .await;
 
-    let mut summary = serde_json::json!({});
+    let mut summary = responses::TrainingSummary {
+        total_games: 0,
+        total_turns: 0,
+        overall: None,
+        won_games: None,
+        lost_games: None,
+    };
 
     match overall {
         Ok(ref row) => {
-            let total_games: i64 = row.get("total_games");
-            let total_turns: i64 = row.get("total_turns");
-            summary["total_games"] = serde_json::json!(total_games);
-            summary["total_turns"] = serde_json::json!(total_turns);
-            summary["overall"] = row_to_json(row);
+            summary.total_games = row.try_get("total_games").unwrap_or(0);
+            summary.total_turns = row.try_get("total_turns").unwrap_or(0);
+            summary.overall = Some(row_to_averages(row));
         }
         Err(e) => {
             error!("training summary (overall) failed: {e}");
-            summary["overall"] = serde_json::json!(null);
         }
     }
 
     match won_avg {
-        Ok(ref row) => summary["won_games"] = row_to_json(row),
+        Ok(ref row) => summary.won_games = Some(row_to_averages(row)),
         Err(e) => {
             error!("training summary (won) failed: {e}");
-            summary["won_games"] = serde_json::json!(null);
         }
     }
 
     match lost_avg {
-        Ok(ref row) => summary["lost_games"] = row_to_json(row),
+        Ok(ref row) => summary.lost_games = Some(row_to_averages(row)),
         Err(e) => {
             error!("training summary (lost) failed: {e}");
-            summary["lost_games"] = serde_json::json!(null);
         }
     }
 
@@ -764,7 +754,10 @@ pub async fn get_training_summary(pool: &SqlitePool) -> serde_json::Value {
 
 /// Recent per-game stats for win-rate-over-time visualisation.
 #[allow(clippy::cast_precision_loss)]
-pub async fn get_stats_history(pool: &SqlitePool, limit: i64) -> serde_json::Value {
+pub async fn get_stats_history(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<responses::PaginatedStatsHistory, String> {
     match sqlx::query(
         r"
         SELECT
@@ -787,7 +780,7 @@ pub async fn get_stats_history(pool: &SqlitePool, limit: i64) -> serde_json::Val
     .await
     {
         Ok(rows) => {
-            let records: Vec<serde_json::Value> = rows
+            let records: Vec<responses::StatsHistoryRecord> = rows
                 .iter()
                 .map(|r| {
                     let cum_wins: i64 = r.get("cumulative_wins");
@@ -797,24 +790,28 @@ pub async fn get_stats_history(pool: &SqlitePool, limit: i64) -> serde_json::Val
                     } else {
                         0.0
                     };
-                    serde_json::json!({
-                        "game_id": r.get::<String, _>("game_id"),
-                        "won": r.get::<bool, _>("won"),
-                        "is_draw": r.get::<bool, _>("is_draw"),
-                        "total_turns": r.get::<i64, _>("total_turns"),
-                        "total_food_eaten": r.get::<i64, _>("total_food_eaten"),
-                        "recorded_at": r.get::<String, _>("recorded_at"),
-                        "cumulative_wins": cum_wins,
-                        "cumulative_games": cum_games,
-                        "cumulative_win_rate": format!("{win_rate:.1}"),
-                    })
+                    responses::StatsHistoryRecord {
+                        game_id: r.get("game_id"),
+                        won: r.get("won"),
+                        is_draw: r.get("is_draw"),
+                        total_turns: r.get("total_turns"),
+                        total_food_eaten: r.get("total_food_eaten"),
+                        recorded_at: r.get("recorded_at"),
+                        cumulative_wins: cum_wins,
+                        cumulative_games: cum_games,
+                        cumulative_win_rate: format!("{win_rate:.1}"),
+                    }
                 })
                 .collect();
-            serde_json::json!({ "data": records, "count": records.len() })
+            let count = records.len();
+            Ok(responses::PaginatedStatsHistory {
+                data: records,
+                count,
+            })
         }
         Err(e) => {
             error!("Failed to query stats history: {e}");
-            serde_json::json!({ "error": "Failed to query stats history" })
+            Err("Failed to query stats history".to_string())
         }
     }
 }
