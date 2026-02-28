@@ -1,17 +1,20 @@
 use actix_cors::Cors;
+use actix_web::web::{Data, get, post};
 use actix_web::{App, HttpResponse, HttpServer, middleware, web};
 use game_objects::GameState;
 use log::info;
-use serde_json::json;
+use serde::Deserialize;
+use sqlx::SqlitePool;
 use std::env;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+mod db;
 mod game_objects;
 mod logic;
 mod stats;
+mod training;
 
-use stats::{
-    ActiveGames, SharedStats, cleanup_stale_games, create_active_games, create_shared_stats,
-};
+use stats::{ActiveGames, cleanup_stale_games, create_active_games};
+use training::TrainingLogger;
 
 // Middleware to add custom Server header
 use actix_web::Error;
@@ -77,32 +80,13 @@ async fn handle_index() -> HttpResponse {
     HttpResponse::Ok().json(logic::info())
 }
 
-async fn handle_stats(data: web::Data<SharedStats>) -> HttpResponse {
-    if let Ok(game_stats) = data.lock() {
-        HttpResponse::Ok().json(json!({
-            "total_games": game_stats.total_games,
-            "wins": game_stats.wins,
-            "losses": game_stats.losses,
-            "draws": game_stats.draws,
-            "win_rate": format!("{:.1}", game_stats.win_rate()),
-            "total_turns": game_stats.total_turns,
-            "average_turns": format!("{:.1}", game_stats.average_turns()),
-            "longest_game": game_stats.longest_game,
-            "shortest_game": if game_stats.shortest_game == u32::MAX { 0 } else { game_stats.shortest_game },
-            "total_food_eaten": game_stats.total_food_eaten,
-            "average_food_eaten": format!("{:.1}", game_stats.average_food_eaten()),
-            "last_played": game_stats.last_played
-        }))
-    } else {
-        HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to acquire stats lock"
-        }))
-    }
+async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
+    HttpResponse::Ok().json(db::get_stats(&pool).await)
 }
 
 async fn handle_start(
     game_state: web::Json<GameState>,
-    active_games: web::Data<ActiveGames>,
+    active_games: Data<ActiveGames>,
 ) -> HttpResponse {
     logic::start(
         &game_state.game,
@@ -132,14 +116,18 @@ async fn handle_start(
 
 async fn handle_move(
     game_state: web::Json<GameState>,
-    active_games: web::Data<ActiveGames>,
+    active_games: Data<ActiveGames>,
+    training: Data<TrainingLogger>,
 ) -> HttpResponse {
-    let response = logic::get_move(
+    let (response, features) = logic::get_move(
         &game_state.game,
         game_state.turn,
         &game_state.board,
         &game_state.you,
     );
+
+    // Fire-and-forget: insert turn features into SQLite in the background
+    training.log_turn(game_state.game.id.clone(), features);
 
     // Update the last turn for this game
     if let Ok(mut games) = active_games.lock()
@@ -153,8 +141,8 @@ async fn handle_move(
 
 async fn handle_end(
     game_state: web::Json<GameState>,
-    stats_data: web::Data<SharedStats>,
-    active_games: web::Data<ActiveGames>,
+    active_games: Data<ActiveGames>,
+    training: Data<TrainingLogger>,
 ) -> HttpResponse {
     let (won, is_draw) = logic::end(
         &game_state.game,
@@ -170,26 +158,76 @@ async fn handle_end(
             let food_eaten = game_state.you.length.saturating_sub(game.starting_length);
             (turns, food_eaten)
         } else {
-            // Fallback if game wasn't tracked (shouldn't happen)
             log::warn!("Game {} not found in active games", game_state.game.id);
             (game_state.turn.cast_unsigned(), 0)
         }
     } else {
-        // Fallback if lock fails
         log::error!("Failed to acquire active games lock");
         (game_state.turn.cast_unsigned(), 0)
     };
 
-    // Record the game with accurate stats
-    if let Ok(mut game_stats) = stats_data.lock() {
-        game_stats.record_game(turns, food_eaten, won, is_draw);
-        if let Err(e) = game_stats.save() {
-            log::error!("Failed to save stats: {e}");
-        }
-    }
+    // Fire-and-forget: write outcome + aggregate stats to SQLite
+    training.log_outcome(game_state.game.id.clone(), won, is_draw, turns, food_eaten);
+    training.log_game_stats(turns, food_eaten, won, is_draw);
 
     HttpResponse::Ok().finish()
 }
+
+// ---------------------------------------------------------------------------
+// Training data & stats-history query endpoints
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct TurnsQuery {
+    game_id: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn handle_training_turns(
+    pool: Data<SqlitePool>,
+    query: web::Query<TurnsQuery>,
+) -> HttpResponse {
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let offset = query.offset.unwrap_or(0);
+    HttpResponse::Ok().json(db::get_turns(&pool, query.game_id.as_deref(), limit, offset).await)
+}
+
+#[derive(Deserialize)]
+struct PaginationQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn handle_training_outcomes(
+    pool: Data<SqlitePool>,
+    query: web::Query<PaginationQuery>,
+) -> HttpResponse {
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let offset = query.offset.unwrap_or(0);
+    HttpResponse::Ok().json(db::get_outcomes(&pool, limit, offset).await)
+}
+
+async fn handle_training_summary(pool: Data<SqlitePool>) -> HttpResponse {
+    HttpResponse::Ok().json(db::get_training_summary(&pool).await)
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    limit: Option<i64>,
+}
+
+async fn handle_stats_history(
+    pool: Data<SqlitePool>,
+    query: web::Query<HistoryQuery>,
+) -> HttpResponse {
+    let limit = query.limit.unwrap_or(100).min(1000);
+    HttpResponse::Ok().json(db::get_stats_history(&pool, limit).await)
+}
+
+// ---------------------------------------------------------------------------
+// Server entry-point
+// ---------------------------------------------------------------------------
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -208,9 +246,10 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting Battlesnake Server on port {port}...");
 
-    // Initialize shared stats and active games tracker
-    let shared_stats = create_shared_stats();
+    // Initialize SQLite pool, active-game tracker, and training logger
+    let pool = db::init().await;
     let active_games = create_active_games();
+    let training_logger = TrainingLogger::new(pool.clone());
 
     HttpServer::new(move || {
         // Configure CORS to allow requests from any origin
@@ -221,16 +260,23 @@ async fn main() -> std::io::Result<()> {
             .max_age(3600);
 
         App::new()
-            .app_data(web::Data::new(shared_stats.clone()))
-            .app_data(web::Data::new(active_games.clone()))
+            .app_data(Data::new(pool.clone()))
+            .app_data(Data::new(active_games.clone()))
+            .app_data(Data::new(training_logger.clone()))
             .wrap(cors)
             .wrap(middleware::Logger::default())
             .wrap(ServerHeader)
-            .route("/", web::get().to(handle_index))
-            .route("/stats", web::get().to(handle_stats))
-            .route("/start", web::post().to(handle_start))
-            .route("/move", web::post().to(handle_move))
-            .route("/end", web::post().to(handle_end))
+            // Battlesnake API
+            .route("/", get().to(handle_index))
+            .route("/start", post().to(handle_start))
+            .route("/move", post().to(handle_move))
+            .route("/end", post().to(handle_end))
+            // Stats & training data
+            .route("/stats", get().to(handle_stats))
+            .route("/stats/history", get().to(handle_stats_history))
+            .route("/training/turns", get().to(handle_training_turns))
+            .route("/training/outcomes", get().to(handle_training_outcomes))
+            .route("/training/summary", get().to(handle_training_summary))
     })
     .bind(("0.0.0.0", port))?
     .run()
