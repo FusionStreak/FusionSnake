@@ -12,10 +12,11 @@
 
 use log::info;
 use serde::Serialize;
-use serde_json::{Value, json};
+
 use std::collections::VecDeque;
 
 use crate::game_objects::{Battlesnake, Board, Coord, Game};
+use crate::responses::{InfoResponse, MoveResponse};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct Move {
@@ -188,17 +189,17 @@ pub struct MoveFeatures {
 // info is called when you create your Battlesnake on play.battlesnake.com
 // and controls your Battlesnake's appearance
 // TIP: If you open your Battlesnake URL in a browser you should see this data
-pub fn info() -> Value {
+pub fn info() -> InfoResponse {
     info!("INFO");
 
-    json!({
-        "apiversion": "1",
-        "author": "fusionstreak",
-        "color": "#BF360C",
-        "head": "crystal-power",
-        "tail": "crystal-power",
-        "version": "0.0.1"
-    })
+    InfoResponse {
+        apiversion: "1",
+        author: "fusionstreak",
+        color: "#BF360C",
+        head: "crystal-power",
+        tail: "crystal-power",
+        version: "0.0.1",
+    }
 }
 
 // start is called when your Battlesnake begins a game
@@ -303,7 +304,12 @@ fn tail_will_move(snake: &Battlesnake) -> bool {
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
 #[allow(clippy::too_many_lines, clippy::cast_sign_loss)]
-pub fn get_move(game: &Game, turn: i32, board: &Board, you: &Battlesnake) -> (Value, MoveFeatures) {
+pub fn get_move(
+    game: &Game,
+    turn: i32,
+    board: &Board,
+    you: &Battlesnake,
+) -> (MoveResponse, MoveFeatures) {
     info!("TURN {turn}");
 
     let w = board.width.cast_signed();
@@ -557,5 +563,10 @@ pub fn get_move(game: &Game, turn: i32, board: &Board, you: &Battlesnake) -> (Va
         space_weight,
     };
 
-    (json!({ "move": chosen }), features)
+    (
+        MoveResponse {
+            chosen_move: chosen,
+        },
+        features,
+    )
 }
