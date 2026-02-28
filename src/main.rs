@@ -355,7 +355,6 @@ struct HistoryQuery {
     path = "/stats/history",
     tag = "Stats",
     params(HistoryQuery),
-    security(("api_key" = [])),
     responses(
         (status = 200, description = "Per-game stats with cumulative aggregates", body = responses::PaginatedStatsHistory),
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse),
@@ -363,7 +362,6 @@ struct HistoryQuery {
     )
 )]
 async fn handle_stats_history(
-    _key: auth::ApiKey,
     pool: Data<SqlitePool>,
     query: web::Query<HistoryQuery>,
 ) -> HttpResponse {
