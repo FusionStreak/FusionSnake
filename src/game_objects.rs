@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::string::String;
+use utoipa::ToSchema;
 
 /// Royale settings object
 ///
@@ -20,7 +21,7 @@ use std::string::String;
 ///    shrink_every_n_turns: 10,
 /// };
 /// ```
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct RoyaleSettings {
     #[serde(rename = "shrinkEveryNTurns")]
     /// The number of turns between generating new hazards (shrinking the safe board space).
@@ -52,7 +53,7 @@ pub struct RoyaleSettings {
 /// };
 /// ```
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 
 pub struct SquadSettings {
     #[serde(rename = "allowBodyCollisions")]
@@ -65,7 +66,7 @@ pub struct SquadSettings {
     pub(super) shared_length: bool,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 
 /// Ruleset settings object
 ///
@@ -150,7 +151,7 @@ pub struct RulesetSettings {
 ///     settings: ruleset_settings,
 /// };
 /// ```
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 
 pub struct Ruleset {
     pub(super) name: String,
@@ -189,7 +190,7 @@ pub struct Ruleset {
 /// let ruleset: HashMap<String, Value> = HashMap::new();
 /// let game = Game::new("game-id".to_string(), ruleset, 500, "standard".to_string(), "custom".to_string());
 /// ```
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Game {
     pub(super) id: String,
     pub(super) ruleset: Ruleset,
@@ -235,7 +236,7 @@ pub struct Game {
 ///   ]
 /// }
 /// ```
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Board {
     pub(super) height: u8,
     pub(super) width: u8,
@@ -255,7 +256,7 @@ pub struct Board {
 /// * `color` - The color of the Battlesnake in hex format. Example: "#888888"
 /// * `head` - The head of the Battlesnake. Example: "default"
 /// * `tail` - The tail of the Battlesnake. Example: "default"
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Customization {
     pub(super) color: String,
     pub(super) head: String,
@@ -305,7 +306,7 @@ pub struct Customization {
 ///   }
 /// }
 /// ```
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Battlesnake {
     pub(super) id: String,
     pub(super) name: String,
@@ -327,7 +328,7 @@ pub struct Battlesnake {
 ///
 /// * `x` - The x-coordinate of the Coord. Example: 5
 /// * `y` - The y-coordinate of the Coord. Example: 5
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema)]
 pub struct Coord {
     pub(super) x: i8,
     pub(super) y: i8,
@@ -350,7 +351,7 @@ impl Coord {
 /// * `turn` - The turn of the `GameState`.
 /// * `board` - The board object of the `GameState`.
 /// * `you` - The Battlesnake object of the `GameState`.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct GameState {
     pub(super) game: Game,
     pub(super) turn: i32,
