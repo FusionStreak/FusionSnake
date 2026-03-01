@@ -20,6 +20,7 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
+import optuna
 import requests
 from fpdf import FPDF
 
@@ -281,8 +282,6 @@ def generate_report(
     """
     Generate the daily PDF report and return the file path.
     """
-    import optuna  # for param importance in _add_optuna_plots
-
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     output_path = REPORTS_DIR / f"report_{today}.pdf"
