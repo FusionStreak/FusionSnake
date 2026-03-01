@@ -16,6 +16,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 
 use crate::game_objects::{Battlesnake, Board, Coord, Game};
+use crate::heuristic_params::HeuristicParams;
 use crate::responses::{InfoResponse, MoveResponse};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -309,6 +310,7 @@ pub fn get_move(
     turn: i32,
     board: &Board,
     you: &Battlesnake,
+    params: &HeuristicParams,
 ) -> (MoveResponse, MoveFeatures) {
     info!("TURN {turn}");
 
@@ -378,7 +380,11 @@ pub fn get_move(
                     mv.safety_score = 0;
                 } else {
                     // Graduated penalty — harsher when health is low
-                    let penalty = if you.health < 50 { 20u8 } else { 10u8 };
+                    let penalty = if you.health < params.hazard_health_threshold {
+                        params.hazard_penalty_low_health
+                    } else {
+                        params.hazard_penalty_high_health
+                    };
                     mv.safety_score = mv.safety_score.saturating_sub(penalty);
                 }
                 break; // coord matches at most one hazard entry per cell
@@ -387,15 +393,20 @@ pub fn get_move(
     }
 
     // === Penalize edge proximity ===
+    let edge_dist = params.edge_proximity_distance;
     for mv in potential_moves.iter_mut() {
         if mv.safety_score == 0 {
             continue;
         }
-        if mv.coord.x <= 1 || mv.coord.x >= w - 2 {
-            mv.safety_score = mv.safety_score.saturating_sub(1);
+        if mv.coord.x <= edge_dist || mv.coord.x >= w - 1 - edge_dist {
+            mv.safety_score = mv
+                .safety_score
+                .saturating_sub(params.edge_proximity_penalty);
         }
-        if mv.coord.y <= 1 || mv.coord.y >= h - 2 {
-            mv.safety_score = mv.safety_score.saturating_sub(1);
+        if mv.coord.y <= edge_dist || mv.coord.y >= h - 1 - edge_dist {
+            mv.safety_score = mv
+                .safety_score
+                .saturating_sub(params.edge_proximity_penalty);
         }
     }
 
@@ -411,20 +422,22 @@ pub fn get_move(
             let enemy_head = snake.head;
             let distance = mv.coord.distance_to(enemy_head);
 
-            if distance <= 2 {
+            if distance <= params.h2h_detection_radius {
                 if you.length > snake.length {
                     // We are longer — moving near their head is an opportunity
                     // Give a small desirability bonus for aggressive play
                     if distance == 1 {
-                        mv.desirability_score = mv.desirability_score.saturating_add(15);
+                        mv.desirability_score = mv
+                            .desirability_score
+                            .saturating_add(params.h2h_aggression_bonus);
                     }
                 } else {
                     // Equal or shorter — potential death on head-to-head
                     // Distance 1 means our move could directly collide with their next move
                     if distance <= 1 {
-                        mv.safety_score = mv.safety_score.saturating_sub(30);
+                        mv.safety_score = mv.safety_score.saturating_sub(params.h2h_penalty_close);
                     } else {
-                        mv.safety_score = mv.safety_score.saturating_sub(8);
+                        mv.safety_score = mv.safety_score.saturating_sub(params.h2h_penalty_medium);
                     }
                 }
             }
@@ -440,7 +453,9 @@ pub fn get_move(
             for coord in &snake.body {
                 let distance = mv.coord.distance_to(*coord);
                 if distance == 1 {
-                    mv.safety_score = mv.safety_score.saturating_sub(2);
+                    mv.safety_score = mv
+                        .safety_score
+                        .saturating_sub(params.body_proximity_penalty);
                 }
             }
         }
@@ -492,7 +507,7 @@ pub fn get_move(
             let distance = mv.coord.distance_to(target_food);
             mv.desirability_score = mv
                 .desirability_score
-                .saturating_add(200u8.saturating_sub(distance));
+                .saturating_add(params.food_desirability_base.saturating_sub(distance));
         }
     }
 
@@ -509,18 +524,33 @@ pub fn get_move(
         #[allow(clippy::cast_possible_truncation)]
         let body_len = you.length.min(u32::from(u16::MAX)) as u16;
         if reachable < body_len {
-            mv.safety_score = mv.safety_score.saturating_sub(50);
+            mv.safety_score = mv
+                .safety_score
+                .saturating_sub(params.flood_fill_trap_penalty);
         }
     }
 
     // === Balance weights based on health ===
-    let (safety_weight, food_weight, space_weight) = if you.health < 30 {
-        (1, 3, 1) // Desperate for food
-    } else if you.health < 60 {
-        (2, 2, 1) // Balanced
-    } else {
-        (3, 1, 2) // Healthy — prioritize safety and space
-    };
+    let (safety_weight, food_weight, space_weight) =
+        if you.health < params.health_threshold_desperate {
+            (
+                params.weight_desperate_safety,
+                params.weight_desperate_food,
+                params.weight_desperate_space,
+            )
+        } else if you.health < params.health_threshold_balanced {
+            (
+                params.weight_balanced_safety,
+                params.weight_balanced_food,
+                params.weight_balanced_space,
+            )
+        } else {
+            (
+                params.weight_healthy_safety,
+                params.weight_healthy_food,
+                params.weight_healthy_space,
+            )
+        };
 
     let chosen =
         potential_moves.choose_best_move_weighted(safety_weight, food_weight, space_weight);

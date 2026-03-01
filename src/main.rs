@@ -13,11 +13,13 @@ use utoipa::openapi::security::{ApiKey as ApiKeyScheme, ApiKeyValue, SecuritySch
 mod auth;
 mod db;
 mod game_objects;
+mod heuristic_params;
 mod logic;
 mod responses;
 mod stats;
 mod training;
 
+use heuristic_params::{SharedParams, create_shared_params};
 use stats::{ActiveGames, cleanup_stale_games, create_active_games};
 use training::TrainingLogger;
 
@@ -190,12 +192,15 @@ async fn handle_move(
     game_state: web::Json<GameState>,
     active_games: Data<ActiveGames>,
     training: Data<TrainingLogger>,
+    shared_params: Data<SharedParams>,
 ) -> HttpResponse {
+    let params = shared_params.read().await;
     let (response, features) = logic::get_move(
         &game_state.game,
         game_state.turn,
         &game_state.board,
         &game_state.you,
+        &params,
     );
 
     // Fire-and-forget: insert turn features into SQLite in the background
@@ -375,6 +380,99 @@ async fn handle_stats_history(
 }
 
 // ---------------------------------------------------------------------------
+// Heuristic parameter configuration endpoints
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/config",
+    tag = "Config",
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Current heuristic parameters", body = heuristic_params::HeuristicParams),
+        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
+    )
+)]
+async fn handle_get_config(
+    _key: auth::ApiKey,
+    shared_params: Data<SharedParams>,
+) -> HttpResponse {
+    let params = shared_params.read().await;
+    HttpResponse::Ok().json(params.clone())
+}
+
+#[utoipa::path(
+    post,
+    path = "/config",
+    tag = "Config",
+    security(("api_key" = [])),
+    request_body = heuristic_params::HeuristicParams,
+    responses(
+        (status = 200, description = "Parameters updated successfully"),
+        (status = 400, description = "Validation error", body = responses::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
+    )
+)]
+async fn handle_set_config(
+    _key: auth::ApiKey,
+    shared_params: Data<SharedParams>,
+    body: web::Json<heuristic_params::HeuristicParams>,
+) -> HttpResponse {
+    let new_params = body.into_inner();
+
+    // Validate before applying
+    let errors = new_params.validate();
+    if !errors.is_empty() {
+        return HttpResponse::BadRequest().json(responses::ErrorResponse {
+            error: format!("Validation failed: {}", errors.join("; ")),
+        });
+    }
+
+    // Persist to disk first so we don't lose params on crash
+    let path = std::env::var("PARAMS_FILE")
+        .unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
+    if let Err(e) = new_params.save_to_file(std::path::Path::new(&path)) {
+        log::warn!("Failed to persist params to disk: {e}");
+        // Continue anyway — in-memory update is still valid
+    }
+
+    // Store previous params for potential rollback
+    let mut params = shared_params.write().await;
+    *params = new_params;
+    drop(params);
+
+    info!("Heuristic parameters updated via POST /config");
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters updated"}))
+}
+
+#[utoipa::path(
+    post,
+    path = "/config/reset",
+    tag = "Config",
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Parameters reset to defaults"),
+        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
+    )
+)]
+async fn handle_reset_config(
+    _key: auth::ApiKey,
+    shared_params: Data<SharedParams>,
+) -> HttpResponse {
+    let defaults = heuristic_params::HeuristicParams::default();
+
+    let path = std::env::var("PARAMS_FILE")
+        .unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
+    let _ = defaults.save_to_file(std::path::Path::new(&path));
+
+    let mut params = shared_params.write().await;
+    *params = defaults;
+
+    info!("Heuristic parameters reset to defaults via POST /config/reset");
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters reset to defaults"}))
+}
+
+// ---------------------------------------------------------------------------
 // OpenAPI specification
 // ---------------------------------------------------------------------------
 
@@ -409,6 +507,9 @@ impl utoipa::Modify for SecurityAddon {
         handle_training_turns,
         handle_training_outcomes,
         handle_training_summary,
+        handle_get_config,
+        handle_set_config,
+        handle_reset_config,
     ),
     components(schemas(
         responses::InfoResponse,
@@ -423,6 +524,7 @@ impl utoipa::Modify for SecurityAddon {
         responses::PaginatedStatsHistory,
         responses::TrainingAverages,
         responses::TrainingSummary,
+        heuristic_params::HeuristicParams,
         game_objects::GameState,
         game_objects::Game,
         game_objects::Ruleset,
@@ -438,7 +540,8 @@ impl utoipa::Modify for SecurityAddon {
     tags(
         (name = "Battlesnake API", description = "Core Battlesnake game engine endpoints"),
         (name = "Stats", description = "Game statistics and history"),
-        (name = "Training", description = "ML training data endpoints (API key required)")
+        (name = "Training", description = "ML training data endpoints (API key required)"),
+        (name = "Config", description = "Runtime heuristic parameter tuning (API key required)")
     )
 )]
 struct ApiDoc;
@@ -472,6 +575,7 @@ async fn main() -> std::io::Result<()> {
     let pool = db::init().await;
     let active_games = create_active_games();
     let training_logger = TrainingLogger::new(pool.clone());
+    let shared_params = create_shared_params();
 
     HttpServer::new(move || {
         // Configure CORS to allow requests from any origin
@@ -488,6 +592,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(active_games.clone()))
             .app_data(Data::new(training_logger.clone()))
+            .app_data(Data::new(shared_params.clone()))
             .app_data(web::JsonConfig::default().limit(262_144)) // 256 KB
             .wrap(cors)
             .wrap(middleware::Logger::default())
@@ -503,6 +608,10 @@ async fn main() -> std::io::Result<()> {
             .route("/training/turns", get().to(handle_training_turns))
             .route("/training/outcomes", get().to(handle_training_outcomes))
             .route("/training/summary", get().to(handle_training_summary))
+            // Config (heuristic params)
+            .route("/config", get().to(handle_get_config))
+            .route("/config", post().to(handle_set_config))
+            .route("/config/reset", post().to(handle_reset_config))
             // OpenAPI spec
             .route("/api-doc/openapi.json", get().to(handle_openapi))
     })
