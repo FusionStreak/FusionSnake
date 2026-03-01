@@ -13,3 +13,21 @@ services:
     environment:
       - RUST_LOG=info
       - DATABASE_URL=sqlite:/data/fusion_snake.db
+      - API_KEY=${API_KEY:-}
+
+  trainer:
+    image: ghcr.io/fusionstreak/fusionsnake-trainer:latest
+    container_name: snake-trainer
+    depends_on:
+      - snek
+    volumes:
+      - ./data:/data
+    environment:
+      - SNAKE_URL=http://snek:6666
+      - API_KEY=${API_KEY:-}
+      - REPORTS_DIR=/data/reports
+      - CACHE_DIR=/data/trainer_cache
+      - MIN_TRAINING_ROWS=500
+      - MIN_IMPROVEMENT=0.02
+      - N_TRIALS=200
+    restart: unless-stopped
