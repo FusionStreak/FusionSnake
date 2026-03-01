@@ -49,7 +49,7 @@ class TrainingReport(FPDF):
         self.cell(
             0,
             10,
-            f"FusionSnake Training Report — {self.report_date}",
+            f"FusionSnake Training Report | {self.report_date}",
             ln=True,
             align="C",
         )
