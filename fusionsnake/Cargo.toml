@@ -1,0 +1,31 @@
+[package]
+authors = ["Sayfullah Eid"]
+name = "fusion-snake"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/FusionStreak/FusionSnake.git"
+readme = "README.md"
+keywords = ["battlesnake"]
+description = """
+A simple Battlesnake written in Rust
+"""
+
+[dependencies]
+actix-web = "^4.9"
+actix-cors = "^0.7"
+actix-rt = "^2.10"
+tokio = { version = "^1", features = ["sync", "fs", "io-util"] }
+futures-util = "^0.3"
+serde = { version = "^1.0.219", features = ["derive"] }
+serde_json = "^1.0.140"
+sqlx = { version = "^0.8", features = ["runtime-tokio", "sqlite"] }
+log = "^0.4.27"
+tracing = "^0.1"
+tracing-subscriber = { version = "^0.3", features = ["json", "env-filter"] }
+rand = "^0.10.0"
+chrono = { version = "^0.4", features = ["serde"] }
+utoipa = { version = "5", features = ["actix_extras"] }
+
+[lints.clippy]
+pedantic = "warn"
