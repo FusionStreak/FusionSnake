@@ -393,10 +393,7 @@ async fn handle_stats_history(
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
     )
 )]
-async fn handle_get_config(
-    _key: auth::ApiKey,
-    shared_params: Data<SharedParams>,
-) -> HttpResponse {
+async fn handle_get_config(_key: auth::ApiKey, shared_params: Data<SharedParams>) -> HttpResponse {
     let params = shared_params.read().await;
     HttpResponse::Ok().json(params.clone())
 }
@@ -429,8 +426,8 @@ async fn handle_set_config(
     }
 
     // Persist to disk first so we don't lose params on crash
-    let path = std::env::var("PARAMS_FILE")
-        .unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
+    let path =
+        std::env::var("PARAMS_FILE").unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
     if let Err(e) = new_params.save_to_file(std::path::Path::new(&path)) {
         log::warn!("Failed to persist params to disk: {e}");
         // Continue anyway — in-memory update is still valid
@@ -461,15 +458,16 @@ async fn handle_reset_config(
 ) -> HttpResponse {
     let defaults = heuristic_params::HeuristicParams::default();
 
-    let path = std::env::var("PARAMS_FILE")
-        .unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
+    let path =
+        std::env::var("PARAMS_FILE").unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
     let _ = defaults.save_to_file(std::path::Path::new(&path));
 
     let mut params = shared_params.write().await;
     *params = defaults;
 
     info!("Heuristic parameters reset to defaults via POST /config/reset");
-    HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters reset to defaults"}))
+    HttpResponse::Ok()
+        .json(serde_json::json!({"status": "ok", "message": "Parameters reset to defaults"}))
 }
 
 // ---------------------------------------------------------------------------
@@ -593,7 +591,30 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(active_games.clone()))
             .app_data(Data::new(training_logger.clone()))
             .app_data(Data::new(shared_params.clone()))
-            .app_data(web::JsonConfig::default().limit(262_144)) // 256 KB
+            .app_data(
+                web::JsonConfig::default()
+                    .limit(262_144) // 256 KB
+                    .error_handler(|err, _req| {
+                        let message = match &err {
+                            actix_web::error::JsonPayloadError::ContentType => {
+                                "Content-Type must be application/json".to_string()
+                            }
+                            actix_web::error::JsonPayloadError::Deserialize(_) => {
+                                "Invalid request body".to_string()
+                            }
+                            actix_web::error::JsonPayloadError::Payload(_) => {
+                                "Failed to read request body".to_string()
+                            }
+                            _ => "Bad request".to_string(),
+                        };
+                        actix_web::error::InternalError::from_response(
+                            err,
+                            HttpResponse::BadRequest()
+                                .json(responses::ErrorResponse { error: message }),
+                        )
+                        .into()
+                    }),
+            )
             .wrap(cors)
             .wrap(middleware::Logger::default())
             .wrap(SecurityHeaders)
