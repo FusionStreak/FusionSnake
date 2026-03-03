@@ -6,3 +6,5 @@ optuna>=3.5
 matplotlib>=3.8
 fpdf2>=2.7
 numpy>=1.26
+flask>=3.0
+python-json-logger>=2.0
