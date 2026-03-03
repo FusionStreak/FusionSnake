@@ -25,11 +25,9 @@ from optimizer import optimise
 from param_schema import defaults_dict
 from report import generate_report
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
+from log_config import setup_logging
+
+setup_logging()
 logger = logging.getLogger("train")
 
 SNAKE_URL = os.environ.get("SNAKE_URL", "http://localhost:6666")
@@ -68,7 +66,9 @@ def push_params(params: dict) -> bool:
 
 def main(dry_run: bool = False) -> int:
     logger.info("=" * 60)
-    logger.info("FusionSnake ML Training Pipeline — %s", datetime.now(timezone.utc).isoformat())
+    logger.info(
+        "FusionSnake ML Training Pipeline — %s", datetime.now(timezone.utc).isoformat()
+    )
     logger.info("=" * 60)
 
     # ── 1. Load data ──────────────────────────────────────────────────────
@@ -155,11 +155,16 @@ def main(dry_run: bool = False) -> int:
             MIN_IMPROVEMENT,
         )
         if dry_run:
-            logger.info("[DRY RUN] Would push: %s", json.dumps(opt_results["best_params"], indent=2))
+            logger.info(
+                "[DRY RUN] Would push: %s",
+                json.dumps(opt_results["best_params"], indent=2),
+            )
         else:
             success = push_params(opt_results["best_params"])
             if not success:
-                logger.error("Failed to push params — snake will continue with current values")
+                logger.error(
+                    "Failed to push params — snake will continue with current values"
+                )
     else:
         logger.info(
             "Improvement %.4f < %.4f threshold — keeping current params",
