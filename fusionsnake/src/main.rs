@@ -549,6 +549,35 @@ async fn handle_openapi() -> HttpResponse {
 }
 
 // ---------------------------------------------------------------------------
+// ML trainer periodic trigger
+// ---------------------------------------------------------------------------
+
+/// Spawns a detached background task that POSTs to `{trainer_url}/train`
+/// every 24 hours, prompting the Python ML pipeline to run.
+///
+/// The trainer is expected to respond immediately with 202 Accepted and
+/// execute the pipeline asynchronously, so this call is fire-and-forget.
+/// The first trigger fires 24 h after startup (the trainer already runs an
+/// initial pass on its own startup via `entrypoint.sh`).
+fn spawn_trainer_trigger(trainer_url: String) {
+    drop(tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let period = std::time::Duration::from_secs(24 * 60 * 60);
+        let start = tokio::time::Instant::now() + period;
+        let mut interval = tokio::time::interval_at(start, period);
+        loop {
+            interval.tick().await;
+            let url = format!("{trainer_url}/train");
+            info!("Triggering ML training pipeline at {url}");
+            match client.post(&url).send().await {
+                Ok(resp) => info!("Trainer responded with {}", resp.status()),
+                Err(e) => log::warn!("Failed to trigger trainer: {e}"),
+            }
+        }
+    }));
+}
+
+// ---------------------------------------------------------------------------
 // Server entry-point
 // ---------------------------------------------------------------------------
 
@@ -574,6 +603,12 @@ async fn main() -> std::io::Result<()> {
     let active_games = create_active_games();
     let training_logger = TrainingLogger::new(pool.clone());
     let shared_params = create_shared_params();
+
+    // Kick off the 24-hour trainer trigger if a URL is configured
+    if let Ok(trainer_url) = env::var("TRAINER_URL") {
+        info!("Trainer trigger configured: {trainer_url}/train will be called every 24 h");
+        spawn_trainer_trigger(trainer_url);
+    }
 
     HttpServer::new(move || {
         // Configure CORS to allow requests from any origin
