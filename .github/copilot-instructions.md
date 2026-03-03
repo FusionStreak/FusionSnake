@@ -1,105 +1,133 @@
 # FusionSnake - Battlesnake AI Agent Instructions
 
-## Project Overview
+## Architecture Overview
 
-This is a Battlesnake bot written in Rust using the Actix Web framework. The snake responds to REST API calls during games on play.battlesnake.com, making move decisions based on board state analysis.
+Two components that form a closed ML optimization loop:
 
-## Architecture & Data Flow
-
-### Core Components
-
-- **`main.rs`**: Actix Web HTTP server with 5 endpoints (`/`, `/start`, `/move`, `/end`, `/stats`)
-- **`game_objects.rs`**: Serde-based data structures matching Battlesnake API spec
-- **`logic.rs`**: Decision engine with safety scoring and food desirability algorithms
-- **`stats.rs`**: Game statistics tracking with JSON persistence
+- **`fusionsnake/`** — Rust/Actix Web server that plays Battlesnake and records training data to SQLite
+- **`trainer/`** — Python ML pipeline (Flask + Optuna + GBM) that reads training data, optimizes heuristic parameters, and pushes them back to the running snake via `POST /config`; exposes `POST /train` as an HTTP trigger
 
 ### Request Flow
 
-1. Battlesnake engine sends JSON GameState to `/move` endpoint
-2. `handle_move()` deserializes into `GameState` struct via Actix Web extractors
-3. `logic::get_move()` evaluates all 4 directions using `PotentialMoves`
-4. Returns JSON with chosen direction: `{"move": "up|down|left|right"}`
+```
+Battlesnake engine → POST /move → logic::get_move(&params) → MoveResponse
+                                         ↓ (fire-and-forget)
+                               training::TrainingLogger → SQLite (turns + outcomes)
 
-### Decision Algorithm (in `logic.rs`)
-
-The bot uses a **weighted scoring system** with two metrics per move:
-
-- **`safety_score`**: Starts at 255, penalized for walls/snakes/edges/proximity
-- **`desirability_score`**: Distance to nearest food (inverted: 200 - distance)
-
-Key scoring logic:
-
-```rust
-// Immediate death = 0 safety (walls, snake bodies)
-// Edge proximity: -1 penalty if within 1 tile of board edge
-// Enemy head proximity: -4 if within 2 tiles
-// Body proximity: -2 if within 2 tiles
-// Health-based weighting: <30 health → prioritize food (1:2), else safety (2:1)
+Every 24 h (Tokio interval task in main.rs):
+  FusionSnake server → POST /train → trainer/server.py → 202 Accepted
+                                           ↓ (background thread)
+                                     trainer/train.py (Bayesian optimisation)
+                                           ↓
+                                POST /config → snake HeuristicParams updated
 ```
 
-## Critical Patterns & Conventions
+### Source Files
 
-### Coordinate System
+| File                  | Role                                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `main.rs`             | Actix server, all route registrations, `SecurityHeaders` middleware, 24 h trainer trigger (`spawn_trainer_trigger`) |
+| `logic.rs`            | Decision engine: `get_move()` returns `(MoveResponse, MoveFeatures)`                                                |
+| `heuristic_params.rs` | All tunable scoring constants (`HeuristicParams`), loads from `/data/params.json`                                   |
+| `game_objects.rs`     | Serde structs matching Battlesnake API spec; fields use `pub(super)`                                                |
+| `db.rs`               | SQLite schema + async queries (`turns`, `outcomes`, `game_stats` tables)                                            |
+| `training.rs`         | `TrainingLogger` — cheap clone handle, fire-and-forget Tokio spawns                                                 |
+| `auth.rs`             | `ApiKey` extractor — validates `X-API-Key` header via constant-time compare                                         |
+| `responses.rs`        | `utoipa`-annotated response structs for OpenAPI generation                                                          |
+| `stats.rs`            | `ActiveGames` (Arc<Mutex>) tracking in-progress games                                                               |
 
-- Uses `i8` for coordinates (can be negative during bounds checking)
-- `Coord.distance_to()` returns Manhattan distance as `u8`
-- Board origin (0,0) is **bottom-left**; y increases upward
+**Trainer (`trainer/`):**
 
-### Struct Visibility
+| File            | Role                                                                         |
+| --------------- | ---------------------------------------------------------------------------- |
+| `server.py`     | Flask web server; `POST /train` triggers pipeline in a background thread     |
+| `train.py`      | Full 5-step ML pipeline (load → model → optimise → report → push)            |
+| `entrypoint.sh` | Waits for snake readiness, runs one initial training pass, then starts Flask |
 
-All fields in `game_objects.rs` use `pub(super)` visibility - accessible only within parent module. When adding fields, follow this pattern.
+## Decision Algorithm (`logic.rs`)
 
-### Move Evaluation Pattern
+`get_move()` scores all 4 directions using three metrics per `Move`:
 
-Always iterate through `PotentialMoves` in this order:
+- **`safety_score`** (`u8`, starts at `u8::MAX`): zero = dead cell; penalties applied for hazards, edge proximity, head-to-head, body proximity, and flood-fill trapping
+- **`desirability_score`** (`u8`): `food_desirability_base - manhattan_distance_to_food`
+- **`space_score`** (`u16`): BFS flood fill from candidate cell counting reachable open tiles
 
-1. Filter out immediate death (safety_score = 0)
-2. Apply graduated penalties (not binary death)
-3. Choose with `choose_best_move_weighted()` - never pick a 0-safety move
+`choose_best_move_weighted()` picks the highest `(safety * sw) + (desirability * fw) + (space * xw)`, filtered to `safety_score > 0` first. Falls back to least-bad if all moves are lethal.
 
-### Environment Variables
+**Three health-tier weight regimes** (all values in `HeuristicParams`):
 
-- `PORT`: Server port (default 6666)
-- `RUST_LOG`: Log level (default "info")
-- `STATS_FILE`: Path to stats JSON file (default "./data/stats.json")
+- `health < health_threshold_desperate` → desperate weights (high food priority)
+- `health_threshold_desperate ≤ health < health_threshold_balanced` → balanced
+- `health ≥ health_threshold_balanced` → healthy (high safety priority)
+
+**Tail movement**: a snake that just ate has identical last two body segments — `tail_will_move()` detects this to avoid falsely blocking the vacating tail cell.
+
+## Runtime-Tunable Parameters
+
+All scoring constants live in `HeuristicParams` (`heuristic_params.rs`). On startup the server loads `/data/params.json` (override with `PARAMS_FILE`), falling back to `HeuristicParams::default()`. Stored in `Arc<RwLock<HeuristicParams>>` (aliased as `SharedParams`) and shared via Actix `Data<>`.
+
+To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `params.json`. Do **not** hardcode new constants — add them to `HeuristicParams` and its `Default` impl.
+
+## API Endpoints
+
+| Route                                                            | Auth    | Description                        |
+| ---------------------------------------------------------------- | ------- | ---------------------------------- |
+| `GET /`                                                          | —       | Snake metadata (color, head, tail) |
+| `POST /start`, `/move`, `/end`                                   | —       | Battlesnake game lifecycle         |
+| `GET /stats`, `/stats/history`                                   | —       | Aggregate + per-game statistics    |
+| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | ML training data                   |
+| `GET /config`                                                    | API key | Current `HeuristicParams`          |
+| `POST /config`                                                   | API key | Update params (persists to disk)   |
+| `POST /config/reset`                                             | API key | Revert to defaults                 |
+| `GET /api-doc/openapi.json`                                      | —       | OpenAPI spec                       |
+
+## Environment Variables
+
+| Variable       | Default                         | Description                                                            |
+| -------------- | ------------------------------- | ---------------------------------------------------------------------- |
+| `PORT`         | `6666`                          | HTTP listen port                                                       |
+| `RUST_LOG`     | `info`                          | Log level (uses `tracing_subscriber` with JSON format)                 |
+| `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode)                                                 |
+| `API_KEY`      | _(unset = auth disabled)_       | Protects training/config endpoints                                     |
+| `PARAMS_FILE`  | `./data/params.json`            | Heuristic params persistence path                                      |
+| `TRAINER_URL`  | _(unset = trigger disabled)_    | Base URL of the trainer server; enables the 24 h `POST /train` trigger |
+
+**Trainer environment variables** (set in the `trainer` container):
+
+| Variable            | Default                 | Description                                            |
+| ------------------- | ----------------------- | ------------------------------------------------------ |
+| `TRAINER_PORT`      | `5050`                  | Port the Flask trigger server listens on               |
+| `SNAKE_URL`         | `http://localhost:6666` | Base URL for fetching training data and pushing params |
+| `MIN_TRAINING_ROWS` | `500`                   | Minimum rows before optimisation runs                  |
+| `MIN_IMPROVEMENT`   | `0.02`                  | Win-rate Δ required before pushing new params          |
+| `N_TRIALS`          | `200`                   | Number of Optuna trials per run                        |
 
 ## Development Workflows
 
-### Local Testing
-
 ```bash
-cargo run  # Starts server on 0.0.0.0:6666
-curl http://localhost:6666  # Returns snake metadata
-curl http://localhost:6666/stats  # Returns game statistics
+# Local development
+cargo run                       # Server on 0.0.0.0:6666
+cargo clippy --all-targets --all-features --locked -- -D warnings  # CI lint
+cargo fmt --all                 # Formatting
+
+# Production
+docker compose up -d            # Starts snek + snake-trainer containers
+
+# Python trainer (standalone — runs the pipeline once then exits)
+cd trainer && pip install -r requirements.txt
+SNAKE_URL=http://localhost:6666 API_KEY=... python train.py
+python train.py --dry-run       # Optimise but do not push params
+
+# Python trainer server (standalone)
+SNAKE_URL=http://localhost:6666 API_KEY=... python trainer/server.py
+# Then trigger a run: curl -X POST http://localhost:5050/train
 ```
 
-### Docker Deployment
+## Key Conventions
 
-```bash
-docker compose up -d  # Production deployment
-./update.sh          # Git pull + rebuild + restart
-```
-
-### Common Tasks
-
-- **Add new penalty**: Modify safety_score in `logic.rs` move evaluation loop
-- **Change appearance**: Edit `logic::info()` JSON (color/head/tail must match Battlesnake API)
-- **Adjust aggression**: Modify `safety_weight`/`food_weight` ratio (currently 2:1 or 1:2)
-- **Add new endpoint**: Create async handler function and register with `.route()` in `main.rs`
-
-## Testing Considerations
-
-- Test moves at board edges (x/y = 0 or width/height-1)
-- Verify behavior when health < 30 (should chase food aggressively)
-- Check collision avoidance with snake bodies that persist after death
-- Battlesnake API expects 500ms response time - profile with `RUST_LOG=debug`
-
-## Project-Specific Notes
-
-- Edition 2024 in Cargo.toml (uses latest Rust features)
-- Actix Web 4.9+ for high-performance async HTTP server
-- No async decision logic - move calculations are synchronous within async handlers
-- Custom middleware for Server header identification
-- CORS configured via actix-cors to allow cross-origin requests
-- Stats persistence using Arc<Mutex<GameStats>> for thread-safe shared state
-- Original starter: BattlesnakeOfficial/starter-snake-rust
+- **Coordinate system**: `i8` coords, origin `(0,0)` at bottom-left, y increases upward. Use `.cast_signed()` / `.cast_unsigned()` (Rust 2024 edition) — not `as i8`.
+- **`game_objects.rs` fields**: always `pub(super)` — accessible within the crate only via the parent module.
+- **All DB writes are fire-and-forget**: `TrainingLogger` spawns a Tokio task; never block the HTTP response path on I/O.
+- **Rust edition 2024**: `let-else` chains and `.cast_signed()` are used throughout. Do not introduce `as` casts for integer conversions.
+- **`clippy::pedantic`** is enabled as a warning — new code must pass without suppression unless a specific `#[allow]` with a comment is justified.
+- **OpenAPI**: every new endpoint and response struct must have a `#[utoipa::path(...)]` annotation and be registered in `ApiDoc`.
