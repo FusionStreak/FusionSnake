@@ -2,8 +2,9 @@
 set -euo pipefail
 
 echo "=== FusionSnake Trainer ==="
-echo "Snake URL: ${SNAKE_URL:-http://snek:6666}"
-echo "Reports:   ${REPORTS_DIR:-/data/reports}"
+echo "Snake URL:    ${SNAKE_URL:-http://snek:6666}"
+echo "Reports:      ${REPORTS_DIR:-/data/reports}"
+echo "Trainer port: ${TRAINER_PORT:-5050}"
 
 # Ensure reports directory exists
 mkdir -p "${REPORTS_DIR:-/data/reports}"
@@ -25,9 +26,6 @@ done
 echo "Running initial training pass..."
 python /app/train.py || echo "Initial training failed (possibly insufficient data)"
 
-# Install cron and set up daily schedule
-echo "Setting up daily cron schedule (03:00 UTC)..."
-echo "0 3 * * * cd /app && python train.py >> /var/log/trainer.log 2>&1" | crontab -
-
-echo "Starting cron daemon..."
-exec cron -f
+# Start the HTTP trigger server — subsequent runs are driven by POST /train
+echo "Starting trainer HTTP server on port ${TRAINER_PORT:-5050}..."
+exec python /app/server.py
