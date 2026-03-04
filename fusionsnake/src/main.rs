@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_web::web::{Data, get, post};
 use actix_web::{App, HttpResponse, HttpServer, middleware, web};
 use game_objects::GameState;
-use log::info;
+use log::{debug, info};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use std::env;
@@ -22,6 +22,59 @@ mod training;
 use heuristic_params::{SharedParams, create_shared_params};
 use stats::{ActiveGames, cleanup_stale_games, create_active_games};
 use training::TrainingLogger;
+
+// ---------------------------------------------------------------------------
+// LoggedJson extractor — logs the raw request body for every game endpoint.
+// At DEBUG level: always logs the path + byte count + raw payload.
+// At WARN level:  logs the full payload when JSON deserialization fails.
+// ---------------------------------------------------------------------------
+
+struct LoggedJson<T>(T);
+
+impl<T> std::ops::Deref for LoggedJson<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> actix_web::FromRequest for LoggedJson<T>
+where
+    T: serde::de::DeserializeOwned + 'static,
+{
+    type Error = actix_web::Error;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(
+        req: &actix_web::HttpRequest,
+        payload: &mut actix_web::dev::Payload,
+    ) -> Self::Future {
+        let path = req.path().to_owned();
+        let bytes_fut = actix_web::web::Bytes::from_request(req, payload);
+        Box::pin(async move {
+            let bytes = bytes_fut.await.map_err(|e| {
+                log::warn!("Failed to read request body: {e}");
+                actix_web::error::ErrorBadRequest(e)
+            })?;
+
+            debug!(
+                "Incoming payload on {path} ({} bytes): {}",
+                bytes.len(),
+                String::from_utf8_lossy(&bytes)
+            );
+
+            serde_json::from_slice::<T>(&bytes)
+                .map(LoggedJson)
+                .map_err(|e| {
+                    log::warn!(
+                        "Failed to deserialize JSON on {path}: {e}\nPayload: {}",
+                        String::from_utf8_lossy(&bytes)
+                    );
+                    actix_web::error::ErrorBadRequest(format!("Invalid JSON: {e}"))
+                })
+        })
+    }
+}
 
 // Middleware to add security headers to every response
 use actix_web::Error;
@@ -150,7 +203,7 @@ async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
     )
 )]
 async fn handle_start(
-    game_state: web::Json<GameState>,
+    game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
 ) -> HttpResponse {
     logic::start(
@@ -189,7 +242,7 @@ async fn handle_start(
     )
 )]
 async fn handle_move(
-    game_state: web::Json<GameState>,
+    game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
     training: Data<TrainingLogger>,
     shared_params: Data<SharedParams>,
@@ -226,7 +279,7 @@ async fn handle_move(
     )
 )]
 async fn handle_end(
-    game_state: web::Json<GameState>,
+    game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
     training: Data<TrainingLogger>,
 ) -> HttpResponse {
@@ -671,15 +724,18 @@ async fn main() -> std::io::Result<()> {
             .app_data(
                 web::JsonConfig::default()
                     .limit(262_144) // 256 KB
-                    .error_handler(|err, _req| {
+                    .error_handler(|err, req| {
                         let message = match &err {
                             actix_web::error::JsonPayloadError::ContentType => {
+                                debug!("Invalid Content-Type: expected application/json");
                                 "Content-Type must be application/json".to_string()
                             }
-                            actix_web::error::JsonPayloadError::Deserialize(_) => {
+                            actix_web::error::JsonPayloadError::Deserialize(e) => {
+                                debug!("Failed to deserialize JSON on {}: {e}", req.path());
                                 "Invalid request body".to_string()
                             }
                             actix_web::error::JsonPayloadError::Payload(_) => {
+                                debug!("Failed to read request body {err}");
                                 "Failed to read request body".to_string()
                             }
                             _ => "Bad request".to_string(),
