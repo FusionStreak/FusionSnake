@@ -460,7 +460,8 @@ async fn handle_get_config(_key: auth::ApiKey, shared_params: Data<SharedParams>
     responses(
         (status = 200, description = "Parameters updated successfully"),
         (status = 400, description = "Validation error", body = responses::ErrorResponse),
-        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
+        (status = 401, description = "Unauthorized", body = responses::ErrorResponse),
+        (status = 500, description = "Disk write failure", body = responses::ErrorResponse)
     )
 )]
 async fn handle_set_config(
@@ -478,15 +479,17 @@ async fn handle_set_config(
         });
     }
 
-    // Persist to disk first so we don't lose params on crash
+    // Persist to disk — failure is a hard error so the caller knows params
+    // were not durably saved (in-memory update is NOT applied on disk failure).
     let path =
         std::env::var("PARAMS_FILE").unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
     if let Err(e) = new_params.save_to_file(std::path::Path::new(&path)) {
-        log::warn!("Failed to persist params to disk: {e}");
-        // Continue anyway — in-memory update is still valid
+        log::error!("Failed to persist params to disk: {e}");
+        return HttpResponse::InternalServerError().json(responses::ErrorResponse {
+            error: format!("Failed to persist params to disk: {e}"),
+        });
     }
 
-    // Store previous params for potential rollback
     let mut params = shared_params.write().await;
     *params = new_params;
     drop(params);
