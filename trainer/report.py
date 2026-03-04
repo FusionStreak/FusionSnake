@@ -293,7 +293,8 @@ def generate_report(
         resp = requests.get(f"{SNAKE_URL}/config", headers=_headers(), timeout=10)
         resp.raise_for_status()
         current_params = resp.json()
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to fetch current config from %s/config: %s", SNAKE_URL, e)
         current_params = defaults_dict()
 
     proposed_params = optimisation_results.get("best_params", defaults_dict())
