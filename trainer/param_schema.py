@@ -50,8 +50,10 @@ PARAM_SPECS: list[ParamSpec] = [
     ParamSpec("food_desirability_base",    200, 100, 255, 5, "Base value for food desirability (score = base - dist)"),
 
     # ── health thresholds for weight tiers ────────────────────────────────
-    ParamSpec("health_threshold_desperate",  30,  10,  50, 5, "Below this → desperate weights"),
-    ParamSpec("health_threshold_balanced",   60,  35,  90, 5, "Below this (above desperate) → balanced weights"),
+    # NOTE: desperate max (45) must stay below balanced min (50) to prevent
+    # Optuna from sampling invalid combinations (balanced <= desperate).
+    ParamSpec("health_threshold_desperate",  30,  10,  45, 5, "Below this → desperate weights"),
+    ParamSpec("health_threshold_balanced",   60,  50,  90, 5, "Below this (above desperate) → balanced weights"),
 
     # ── weight triplets ───────────────────────────────────────────────────
     ParamSpec("weight_desperate_safety",     1,   1,  10, 1, "Safety weight when desperate"),
