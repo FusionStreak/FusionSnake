@@ -19,9 +19,9 @@ services:
   trainer:
     image: ghcr.io/fusionstreak/fusionsnake-trainer:latest
     container_name: snake-trainer
-    depends_on:
-      - snek
     volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
       - ./data:/data
     environment:
       - SNAKE_URL=http://snek:6666
