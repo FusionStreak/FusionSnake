@@ -216,11 +216,17 @@ pub const PARAMS_FILE: &str = "/data/params.json";
 
 /// Create the shared parameter store.
 /// Tries to load from `PARAMS_FILE`, falling back to `Default`.
+/// If no file exists, persists the defaults immediately so they survive
+/// the next redeploy without requiring a trainer push first.
 pub fn create_shared_params() -> SharedParams {
     let path = std::env::var("PARAMS_FILE").unwrap_or_else(|_| PARAMS_FILE.to_string());
     let params = HeuristicParams::load_from_file(Path::new(&path)).unwrap_or_else(|| {
         info!("Using default heuristic parameters");
-        HeuristicParams::default()
+        let defaults = HeuristicParams::default();
+        if let Err(e) = defaults.save_to_file(Path::new(&path)) {
+            warn!("Could not persist default params to {path}: {e}");
+        }
+        defaults
     });
     Arc::new(RwLock::new(params))
 }
