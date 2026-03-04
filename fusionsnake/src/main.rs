@@ -552,24 +552,66 @@ async fn handle_openapi() -> HttpResponse {
 // ML trainer periodic trigger
 // ---------------------------------------------------------------------------
 
-/// Spawns a detached background task that POSTs to `{trainer_url}/train`
-/// every 24 hours, prompting the Python ML pipeline to run.
+/// Spawns a detached background task that:
+/// 1. Polls `GET {trainer_url}/health` with exponential backoff until the
+///    trainer is reachable — the trainer container starts Flask immediately
+///    with no startup training of its own.
+/// 2. Fires an immediate `POST {trainer_url}/train` once the trainer is healthy
+///    to kick off the first training pass.
+/// 3. Enters a fixed 24-hour `interval_at` loop for subsequent triggers.
 ///
-/// The trainer is expected to respond immediately with 202 Accepted and
-/// execute the pipeline asynchronously, so this call is fire-and-forget.
-/// The first trigger fires 24 h after startup (the trainer already runs an
-/// initial pass on its own startup via `entrypoint.sh`).
+/// All three phases run inside a single detached Tokio task — the HTTP server
+/// is never blocked. Trainer downtime between periodic triggers is tolerated:
+/// a failed POST is logged as a warning and the loop continues.
 fn spawn_trainer_trigger(trainer_url: String) {
     drop(tokio::spawn(async move {
         let client = reqwest::Client::new();
+        let health_url = format!("{trainer_url}/health");
+        let train_url = format!("{trainer_url}/train");
+
+        // ── Phase 1: await trainer readiness ─────────────────────────────
+        info!("Waiting for ML trainer to become reachable at {health_url}");
+        let mut backoff = std::time::Duration::from_secs(5);
+        let backoff_cap = std::time::Duration::from_secs(60);
+        loop {
+            match client.get(&health_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    info!("ML trainer is healthy — proceeding with initial trigger");
+                    break;
+                }
+                Ok(resp) => {
+                    info!(
+                        "ML trainer not yet healthy ({}), retrying in {}s",
+                        resp.status(),
+                        backoff.as_secs()
+                    );
+                }
+                Err(e) => {
+                    info!(
+                        "ML trainer not yet reachable ({e}), retrying in {}s",
+                        backoff.as_secs()
+                    );
+                }
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(backoff_cap);
+        }
+
+        // ── Phase 2: initial training trigger ────────────────────────────
+        info!("Sending initial training trigger to {train_url}");
+        match client.post(&train_url).send().await {
+            Ok(resp) => info!("Trainer responded with {} (initial)", resp.status()),
+            Err(e) => log::warn!("Initial training trigger failed: {e}"),
+        }
+
+        // ── Phase 3: periodic 24-hour trigger ────────────────────────────
         let period = std::time::Duration::from_secs(24 * 60 * 60);
         let start = tokio::time::Instant::now() + period;
         let mut interval = tokio::time::interval_at(start, period);
         loop {
             interval.tick().await;
-            let url = format!("{trainer_url}/train");
-            info!("Triggering ML training pipeline at {url}");
-            match client.post(&url).send().await {
+            info!("Triggering ML training pipeline at {train_url}");
+            match client.post(&train_url).send().await {
                 Ok(resp) => info!("Trainer responded with {}", resp.status()),
                 Err(e) => log::warn!("Failed to trigger trainer: {e}"),
             }
