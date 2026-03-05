@@ -106,31 +106,31 @@ def main(dry_run: bool = False) -> int:
             generate_report(model_results, opt_results, total_turns, total_games)
         return 0
 
-    # ── 2. Train surrogate model ──────────────────────────────────────────
-    logger.info("Step 2/5: Training surrogate model")
+    # ── 2. Train surrogate model (reporting only) ─────────────────────────
+    logger.info("Step 2/5: Training surrogate model (for reporting)")
     model_results = train_model(df)
 
     if model_results["model"] is None:
-        logger.warning("Model training failed (single-class data?). Exiting.")
-        return 1
+        logger.warning(
+            "Model training failed (single-class data?). Metrics will be empty."
+        )
+    else:
+        logger.info(
+            "Surrogate model: AUC-ROC=%.4f, Accuracy=%.4f",
+            model_results["auc_roc"],
+            model_results["accuracy"],
+        )
 
-    logger.info(
-        "Surrogate model: AUC-ROC=%.4f, Accuracy=%.4f",
-        model_results["auc_roc"],
-        model_results["accuracy"],
-    )
-
-    # ── 3. Optimise ───────────────────────────────────────────────────────
+    # ── 3. Optimise (counterfactual objective) ────────────────────────────
     logger.info("Step 3/5: Running Bayesian optimisation (%d trials)", N_TRIALS)
     opt_results = optimise(
         df,
-        model_results["model"],
         n_trials=N_TRIALS,
         min_improvement=MIN_IMPROVEMENT,
     )
 
     logger.info(
-        "Best predicted win-rate: %.4f (baseline: %.4f, Δ: %.4f)",
+        "Best counterfactual score: %.4f (baseline: %.4f, Δ: %.4f)",
         opt_results["best_win_rate"],
         opt_results["baseline_win_rate"],
         opt_results["improvement"],
