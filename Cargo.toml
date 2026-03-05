@@ -1,1 +1,2 @@
 workspace.members = ["fusionsnake"]
+workspace.resolver = "3"
