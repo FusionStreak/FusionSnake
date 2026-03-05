@@ -1,14 +1,22 @@
 """
-Bayesian optimiser: uses Optuna TPE to search over the 22-parameter heuristic
-space, scoring each candidate via the surrogate win-rate model.
+Bayesian optimiser: uses Optuna TPE to search over the tunable heuristic
+weight / threshold parameters using a **counterfactual agreement-rate**
+objective.
 
 For each trial the optimiser:
-  1. Samples 22 candidate param values from the search space.
-  2. Re-computes the *chosen move* that those weights would produce using the
+  1. Samples candidate weight + threshold values from the search space.
+  2. Re-derives the chosen move that those weights would produce using the
      per-direction scores already stored in the training data.
-  3. Recomputes the weight columns to match the candidate weights.
-  4. Feeds the modified feature rows into the surrogate model.
-  5. Returns the predicted win-rate as the objective to maximise.
+  3. Compares the trial's chosen moves against the *original* chosen moves
+     within each game.
+  4. Computes a counterfactual score that rewards agreement with the original
+     decision on turns from **won** games and disagreement on turns from
+     **lost** games.
+  5. Returns the score as the objective to maximise.
+
+This replaces the previous surrogate-model-prediction objective, which
+barely moved because the frozen per-direction scores dominate the feature
+space.
 """
 
 import logging
@@ -18,94 +26,123 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from model import FEATURE_COLS, predict_win_rate
-from param_schema import PARAM_SPECS, ParamSpec, defaults_dict
+from param_schema import defaults_dict, full_params_dict, tunable_specs
 
 logger = logging.getLogger(__name__)
 
 # Silence Optuna's verbose trial logs
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-# Direction columns per move
 _DIRECTIONS = ["up", "down", "left", "right"]
-_SCORE_TYPES = ["safety", "desirability", "space"]
 
 
-def _recompute_weights(df: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
+# ── Vectorised move re-derivation ─────────────────────────────────────────
+
+
+def _choose_moves(df: pd.DataFrame, params: dict[str, Any]) -> np.ndarray:
     """
-    Given candidate heuristic weight params, recompute the safety_weight /
-    food_weight / space_weight columns based on the health thresholds, then
-    re-derive which move would be chosen.
+    Return an int array of chosen-move indices (0-3 for up/down/left/right)
+    for every row, applying the candidate weight + threshold params to the
+    stored per-direction scores.
     """
-    out = df.copy()
+    health = df["health"].values
 
     desperate_thresh = params["health_threshold_desperate"]
     balanced_thresh = params["health_threshold_balanced"]
 
-    mask_desperate = out["health"] < desperate_thresh
-    mask_balanced = (~mask_desperate) & (out["health"] < balanced_thresh)
-    mask_healthy = out["health"] >= balanced_thresh
+    mask_desp = health < desperate_thresh
+    mask_bal = (~mask_desp) & (health < balanced_thresh)
+    mask_heal = health >= balanced_thresh
 
-    out.loc[mask_desperate, "safety_weight"] = params["weight_desperate_safety"]
-    out.loc[mask_desperate, "food_weight"] = params["weight_desperate_food"]
-    out.loc[mask_desperate, "space_weight"] = params["weight_desperate_space"]
+    n = len(df)
+    sw = np.empty(n, dtype=np.float64)
+    fw = np.empty(n, dtype=np.float64)
+    spw = np.empty(n, dtype=np.float64)
 
-    out.loc[mask_balanced, "safety_weight"] = params["weight_balanced_safety"]
-    out.loc[mask_balanced, "food_weight"] = params["weight_balanced_food"]
-    out.loc[mask_balanced, "space_weight"] = params["weight_balanced_space"]
+    sw[mask_desp] = params["weight_desperate_safety"]
+    fw[mask_desp] = params["weight_desperate_food"]
+    spw[mask_desp] = params["weight_desperate_space"]
 
-    out.loc[mask_healthy, "safety_weight"] = params["weight_healthy_safety"]
-    out.loc[mask_healthy, "food_weight"] = params["weight_healthy_food"]
-    out.loc[mask_healthy, "space_weight"] = params["weight_healthy_space"]
+    sw[mask_bal] = params["weight_balanced_safety"]
+    fw[mask_bal] = params["weight_balanced_food"]
+    spw[mask_bal] = params["weight_balanced_space"]
 
-    # Re-derive chosen_move using the weighted score formula:
-    #   score = safety*sw + desirability*fw + space*spw
-    # Pick direction with highest score (among those with safety > 0)
-    sw = out["safety_weight"].values
-    fw = out["food_weight"].values
-    spw = out["space_weight"].values
+    sw[mask_heal] = params["weight_healthy_safety"]
+    fw[mask_heal] = params["weight_healthy_food"]
+    spw[mask_heal] = params["weight_healthy_space"]
 
-    scores: dict[str, np.ndarray] = {}
-    safeties: dict[str, np.ndarray] = {}
-    for d in _DIRECTIONS:
-        s = out[f"{d}_safety"].values.astype(np.float64)
-        des = out[f"{d}_desirability"].values.astype(np.float64)
-        sp = out[f"{d}_space"].values.astype(np.float64)
-        scores[d] = s * sw + des * fw + sp * spw
-        safeties[d] = s
+    # (n, 4) matrices of safety / desirability / space
+    safety_mat = np.column_stack(
+        [df[f"{d}_safety"].values.astype(np.float64) for d in _DIRECTIONS]
+    )
+    desir_mat = np.column_stack(
+        [df[f"{d}_desirability"].values.astype(np.float64) for d in _DIRECTIONS]
+    )
+    space_mat = np.column_stack(
+        [df[f"{d}_space"].values.astype(np.float64) for d in _DIRECTIONS]
+    )
 
-    # Build (n_rows, 4) score matrix; mask out directions with safety=0
-    score_mat = np.column_stack([scores[d] for d in _DIRECTIONS])
-    safety_mat = np.column_stack([safeties[d] for d in _DIRECTIONS])
+    score_mat = (
+        safety_mat * sw[:, None] + desir_mat * fw[:, None] + space_mat * spw[:, None]
+    )
 
-    # Where safety > 0, use score; otherwise -inf so it's never picked
+    # Mask out directions with safety == 0 (dead moves)
     masked = np.where(safety_mat > 0, score_mat, -np.inf)
 
-    # If ALL directions have safety 0, fall back to raw score (desperation)
+    # If ALL directions are lethal, fall back to raw score
     all_zero = np.all(safety_mat == 0, axis=1)
     masked[all_zero] = score_mat[all_zero]
 
-    best_idx = np.argmax(masked, axis=1)
-    dir_names = np.array(_DIRECTIONS)
-    out["chosen_move"] = dir_names[best_idx]
+    return np.argmax(masked, axis=1)
 
-    return out
+
+# ── Counterfactual objective ──────────────────────────────────────────────
+
+
+def _counterfactual_score(
+    trial_moves: np.ndarray,
+    baseline_moves: np.ndarray,
+    won: np.ndarray,
+) -> float:
+    """
+    Compute a counterfactual agreement-rate score.
+
+    For each turn:
+      - If won=True: reward +1 for *agreeing* with the baseline move
+        (don't break a winning pattern).
+      - If won=False: reward +1 for *disagreeing* with the baseline move
+        (change a losing pattern).
+
+    Returns the mean score (0..1).
+    """
+    agree = trial_moves == baseline_moves
+    score = np.where(won, agree, ~agree)
+    return float(np.mean(score))
+
+
+# ── Optuna sampling ──────────────────────────────────────────────────────
 
 
 def _sample_params(trial: optuna.Trial) -> dict[str, Any]:
-    """Sample all 22 parameters from Optuna's search space."""
+    """Sample only the tunable parameters from Optuna's search space."""
     params: dict[str, Any] = {}
-    for spec in PARAM_SPECS:
-        # All current params are integer
+    for spec in tunable_specs():
         params[spec.name] = trial.suggest_int(
             spec.name, int(spec.low), int(spec.high), step=int(spec.step or 1)
         )
     return params
 
 
+def _tunable_defaults() -> dict[str, Any]:
+    """Return a dict of {name: default} for tunable params only (for enqueue)."""
+    return {spec.name: spec.default for spec in tunable_specs()}
+
+
+# ── Public API ────────────────────────────────────────────────────────────
+
+
 def optimise(
     df: pd.DataFrame,
-    surrogate_model: Any,
     n_trials: int = 200,
     min_improvement: float = 0.02,
 ) -> dict[str, Any]:
@@ -113,27 +150,30 @@ def optimise(
     Run Bayesian optimisation and return the best parameter set.
 
     Returns a dict with:
-      - best_params: dict of {name: value}
-      - best_win_rate: predicted win-rate of best params
-      - baseline_win_rate: predicted win-rate of current defaults
+      - best_params: full 22-param dict (tuned + defaults for frozen)
+      - best_win_rate: counterfactual score of best params
+      - baseline_win_rate: counterfactual score of current defaults
       - improvement: best - baseline
       - n_trials: number of trials run
       - study: the Optuna study object (for visualisation)
       - should_apply: bool — True if improvement exceeds min_improvement
     """
-    # Compute baseline win-rate with current defaults
     defaults = defaults_dict()
-    baseline_df = _recompute_weights(df, defaults)
-    baseline_wr = predict_win_rate(surrogate_model, baseline_df[FEATURE_COLS])
-    logger.info("Baseline predicted win-rate: %.4f", baseline_wr)
+    won = df["won"].values.astype(bool)
+
+    # Baseline: moves chosen with default params
+    baseline_moves = _choose_moves(df, defaults)
+    baseline_wr = _counterfactual_score(baseline_moves, baseline_moves, won)
+    logger.info("Baseline counterfactual score: %.4f", baseline_wr)
 
     def objective(trial: optuna.Trial) -> float:
-        params = _sample_params(trial)
+        tuned = _sample_params(trial)
         # Enforce health_threshold_balanced > health_threshold_desperate
-        if params["health_threshold_balanced"] <= params["health_threshold_desperate"]:
+        if tuned["health_threshold_balanced"] <= tuned["health_threshold_desperate"]:
             raise optuna.TrialPruned()
-        modified = _recompute_weights(df, params)
-        return predict_win_rate(surrogate_model, modified[FEATURE_COLS])
+        params = full_params_dict(tuned)
+        trial_moves = _choose_moves(df, params)
+        return _counterfactual_score(trial_moves, baseline_moves, won)
 
     study = optuna.create_study(
         direction="maximize",
@@ -141,8 +181,8 @@ def optimise(
         study_name="heuristic_tuning",
     )
 
-    # Seed the study with current defaults
-    study.enqueue_trial(defaults)
+    # Seed with current defaults
+    study.enqueue_trial(_tunable_defaults())
 
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
@@ -150,15 +190,17 @@ def optimise(
     improvement = best.value - baseline_wr
     should_apply = improvement >= min_improvement
 
+    best_full = full_params_dict(best.params)
+
     logger.info(
-        "Optimisation complete — best win-rate: %.4f (Δ %.4f), apply: %s",
+        "Optimisation complete — best score: %.4f (Δ %.4f), apply: %s",
         best.value,
         improvement,
         should_apply,
     )
 
     return {
-        "best_params": best.params,
+        "best_params": best_full,
         "best_win_rate": best.value,
         "baseline_win_rate": baseline_wr,
         "improvement": improvement,
