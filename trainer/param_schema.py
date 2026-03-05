@@ -7,7 +7,7 @@ its Python type, the current default, and the Optuna search bounds
 suggest_float, but all current params are integral.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -21,33 +21,34 @@ class ParamSpec:
     high: int | float
     step: int | float | None = None
     description: str = ""
+    tunable: bool = True
 
 
 # fmt: off
 PARAM_SPECS: list[ParamSpec] = [
-    # ── hazard penalties ──────────────────────────────────────────────────
-    ParamSpec("hazard_penalty_low_health",  20,   5,  60, 1, "Safety penalty on hazard when health < threshold"),
-    ParamSpec("hazard_penalty_high_health", 10,   2,  40, 1, "Safety penalty on hazard when health >= threshold"),
-    ParamSpec("hazard_health_threshold",    50,  20,  80, 5, "Health boundary for hazard penalty graduation"),
+    # ── hazard penalties (frozen in training data — not tunable in Phase 1) ─
+    ParamSpec("hazard_penalty_low_health",  20,   5,  60, 1, "Safety penalty on hazard when health < threshold", tunable=False),
+    ParamSpec("hazard_penalty_high_health", 10,   2,  40, 1, "Safety penalty on hazard when health >= threshold", tunable=False),
+    ParamSpec("hazard_health_threshold",    50,  20,  80, 5, "Health boundary for hazard penalty graduation", tunable=False),
 
-    # ── edge proximity ────────────────────────────────────────────────────
-    ParamSpec("edge_proximity_penalty",      1,   0,  10, 1, "Per-axis safety penalty near board edge"),
-    ParamSpec("edge_proximity_distance",     1,   0,   3, 1, "Tile distance from edge that triggers penalty"),
+    # ── edge proximity (frozen) ───────────────────────────────────────────
+    ParamSpec("edge_proximity_penalty",      1,   0,  10, 1, "Per-axis safety penalty near board edge", tunable=False),
+    ParamSpec("edge_proximity_distance",     1,   0,   3, 1, "Tile distance from edge that triggers penalty", tunable=False),
 
-    # ── head-to-head ─────────────────────────────────────────────────────
-    ParamSpec("h2h_detection_radius",        2,   1,   4, 1, "Max Manhattan dist for head-to-head scoring"),
-    ParamSpec("h2h_aggression_bonus",       15,   0,  40, 1, "Desirability bonus when longer & enemy head dist=1"),
-    ParamSpec("h2h_penalty_close",          30,   5,  80, 1, "Safety penalty when shorter & enemy head dist<=1"),
-    ParamSpec("h2h_penalty_medium",          8,   1,  30, 1, "Safety penalty when shorter & enemy head dist=2"),
+    # ── head-to-head (frozen) ─────────────────────────────────────────────
+    ParamSpec("h2h_detection_radius",        2,   1,   4, 1, "Max Manhattan dist for head-to-head scoring", tunable=False),
+    ParamSpec("h2h_aggression_bonus",       15,   0,  40, 1, "Desirability bonus when longer & enemy head dist=1", tunable=False),
+    ParamSpec("h2h_penalty_close",          30,   5,  80, 1, "Safety penalty when shorter & enemy head dist<=1", tunable=False),
+    ParamSpec("h2h_penalty_medium",          8,   1,  30, 1, "Safety penalty when shorter & enemy head dist=2", tunable=False),
 
-    # ── body proximity ────────────────────────────────────────────────────
-    ParamSpec("body_proximity_penalty",      2,   0,  10, 1, "Per-adjacent-body-segment safety penalty"),
+    # ── body proximity (frozen) ───────────────────────────────────────────
+    ParamSpec("body_proximity_penalty",      2,   0,  10, 1, "Per-adjacent-body-segment safety penalty", tunable=False),
 
-    # ── flood fill ────────────────────────────────────────────────────────
-    ParamSpec("flood_fill_trap_penalty",    50,  10, 120, 5, "Safety penalty when reachable < body length"),
+    # ── flood fill (frozen) ───────────────────────────────────────────────
+    ParamSpec("flood_fill_trap_penalty",    50,  10, 120, 5, "Safety penalty when reachable < body length", tunable=False),
 
-    # ── food scoring ──────────────────────────────────────────────────────
-    ParamSpec("food_desirability_base",    200, 100, 255, 5, "Base value for food desirability (score = base - dist)"),
+    # ── food scoring (frozen) ─────────────────────────────────────────────
+    ParamSpec("food_desirability_base",    200, 100, 255, 5, "Base value for food desirability (score = base - dist)", tunable=False),
 
     # ── health thresholds for weight tiers ────────────────────────────────
     # NOTE: desperate max (45) must stay below balanced min (50) to prevent
@@ -77,3 +78,15 @@ def defaults_dict() -> dict[str, Any]:
 def spec_by_name() -> dict[str, ParamSpec]:
     """Return a dict of {name: ParamSpec} for easy lookup."""
     return {p.name: p for p in PARAM_SPECS}
+
+
+def tunable_specs() -> list[ParamSpec]:
+    """Return only specs that are tunable in the current phase."""
+    return [p for p in PARAM_SPECS if p.tunable]
+
+
+def full_params_dict(tuned: dict[str, Any]) -> dict[str, Any]:
+    """Merge tuned params with defaults for non-tunable params (full 22-param dict)."""
+    out = defaults_dict()
+    out.update(tuned)
+    return out
