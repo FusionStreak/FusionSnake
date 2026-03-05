@@ -1,10 +1,10 @@
 """
 Surrogate model: predicts game-win probability from per-turn features.
 
-Trains a gradient-boosted classifier on historical turn data labelled with
-the game outcome.  The model acts as a cheap proxy for "how good are these
-heuristic parameters?" so Optuna can evaluate hundreds of candidates without
-running real games.
+Trains a LightGBM classifier on historical turn data labelled with the
+game outcome.  The model is used for **reporting only** — feature importance
+and quality metrics.  Optimisation uses a separate counterfactual objective
+(see optimizer.py).
 """
 
 import logging
@@ -12,15 +12,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
+from lightgbm import LGBMClassifier
 from sklearn.metrics import roc_auc_score, accuracy_score
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
 # Feature columns used for the surrogate model.
-# These are the per-direction scores (which depend on the heuristic params)
-# plus contextual board features.
 FEATURE_COLS: list[str] = [
     "health",
     "length",
@@ -50,34 +48,50 @@ FEATURE_COLS: list[str] = [
     "safety_weight",
     "food_weight",
     "space_weight",
+    # Derived features
+    "health_ratio",
+    "length_ratio",
+    "max_safety",
 ]
 
 TARGET_COL = "won"
 
 
+def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add interaction / context features to the frame."""
+    out = df.copy()
+    out["health_ratio"] = out["health"] / 100.0
+    enemy_max = out["max_enemy_length"].replace(0, 1)
+    out["length_ratio"] = out["length"] / enemy_max
+    out["max_safety"] = out[
+        ["up_safety", "down_safety", "left_safety", "right_safety"]
+    ].max(axis=1)
+    return out
+
+
 def _prepare(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """Extract feature matrix X and target vector y."""
-    available = [c for c in FEATURE_COLS if c in df.columns]
-    X = df[available].copy()
-    # Ensure boolean columns are numeric
+    enriched = _add_derived_features(df)
+    available = [c for c in FEATURE_COLS if c in enriched.columns]
+    X = enriched[available].copy()
     for col in X.columns:
         if X[col].dtype == "bool":
             X[col] = X[col].astype(int)
-    y = df[TARGET_COL].astype(int)
+    y = enriched[TARGET_COL].astype(int)
     return X, y
 
 
 def train_model(
     df: pd.DataFrame,
-    n_estimators: int = 200,
-    max_depth: int = 5,
-    learning_rate: float = 0.1,
+    n_estimators: int = 300,
+    max_depth: int = 6,
+    learning_rate: float = 0.05,
 ) -> dict[str, Any]:
     """
-    Train a GBM classifier and return a dict with:
+    Train a LightGBM classifier and return a dict with:
       - model: the fitted estimator
-      - auc_roc: mean cross-validated AUC-ROC
-      - accuracy: mean cross-validated accuracy
+      - auc_roc: AUC-ROC on the holdout test set
+      - accuracy: accuracy on the holdout test set
       - feature_importance: dict of {feature: importance}
     """
     X, y = _prepare(df)
@@ -93,42 +107,46 @@ def train_model(
             "feature_importance": {},
         }
 
-    clf = GradientBoostingClassifier(
+    # 80/20 holdout split for honest evaluation
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    clf = LGBMClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
         subsample=0.8,
+        is_unbalance=True,
         random_state=42,
+        verbosity=-1,
     )
 
-    # Cross-validated metrics
-    cv_auc = cross_val_score(clf, X, y, cv=5, scoring="roc_auc")
-    cv_acc = cross_val_score(clf, X, y, cv=5, scoring="accuracy")
+    clf.fit(X_train, y_train)
 
-    # Final fit on all data
-    clf.fit(X, y)
+    # Evaluate on held-out test set
+    y_prob = clf.predict_proba(X_test)[:, 1]
+    y_pred = clf.predict(X_test)
+    auc = float(roc_auc_score(y_test, y_prob))
+    acc = float(accuracy_score(y_test, y_pred))
 
     importance = dict(zip(X.columns, clf.feature_importances_))
 
     logger.info(
-        "Model trained — AUC-ROC: %.4f ± %.4f, Accuracy: %.4f ± %.4f",
-        cv_auc.mean(),
-        cv_auc.std(),
-        cv_acc.mean(),
-        cv_acc.std(),
+        "Model trained — AUC-ROC (holdout): %.4f, Accuracy (holdout): %.4f",
+        auc,
+        acc,
     )
 
     return {
         "model": clf,
-        "auc_roc": float(cv_auc.mean()),
-        "auc_roc_std": float(cv_auc.std()),
-        "accuracy": float(cv_acc.mean()),
-        "accuracy_std": float(cv_acc.std()),
+        "auc_roc": auc,
+        "accuracy": acc,
         "feature_importance": importance,
     }
 
 
-def predict_win_rate(model: GradientBoostingClassifier, X: pd.DataFrame) -> float:
+def predict_win_rate(model: LGBMClassifier, X: pd.DataFrame) -> float:
     """Return mean predicted win probability across all rows."""
     if model is None:
         return 0.0
