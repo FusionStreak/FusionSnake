@@ -81,11 +81,9 @@ def _add_summary_page(
     pdf.cell(0, 8, "2. Surrogate Model Performance", ln=True)
     pdf.set_font("Helvetica", "", 10)
     auc = model_metrics.get("auc_roc", 0)
-    auc_std = model_metrics.get("auc_roc_std", 0)
     acc = model_metrics.get("accuracy", 0)
-    acc_std = model_metrics.get("accuracy_std", 0)
-    pdf.cell(0, 6, f"AUC-ROC (5-fold CV): {auc:.4f} ± {auc_std:.4f}", ln=True)
-    pdf.cell(0, 6, f"Accuracy (5-fold CV): {acc:.4f} ± {acc_std:.4f}", ln=True)
+    pdf.cell(0, 6, f"AUC-ROC (holdout): {auc:.4f}", ln=True)
+    pdf.cell(0, 6, f"Accuracy (holdout): {acc:.4f}", ln=True)
 
 
 def _add_feature_importance(
@@ -193,7 +191,7 @@ def _add_optuna_plots(
     )
     ax.plot(trial_nums, running_best, color="#1B5E20", linewidth=2, label="Best so far")
     ax.set_xlabel("Trial")
-    ax.set_ylabel("Predicted Win Rate")
+    ax.set_ylabel("Counterfactual Score")
     ax.set_title("Optuna Optimisation History")
     ax.legend()
     plt.tight_layout()
