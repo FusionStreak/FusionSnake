@@ -1,6 +1,6 @@
 {
   "name": "FusionSnake | Rust",
-  "image": "rust:1.91-bullseye",
+  "image": "rust:1-slim",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {
       "version": "latest"
