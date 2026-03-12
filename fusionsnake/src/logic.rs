@@ -196,10 +196,10 @@ pub fn info() -> InfoResponse {
     InfoResponse {
         apiversion: "1",
         author: "fusionstreak",
-        color: "#BF360C",
-        head: "crystal-power",
-        tail: "crystal-power",
-        version: "0.0.1",
+        color: "#f54a00",
+        head: "pixel-round",
+        tail: "mlh-gene",
+        version: env!("CARGO_PKG_VERSION"),
     }
 }
 
