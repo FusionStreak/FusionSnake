@@ -60,6 +60,29 @@ pub async fn init() -> SqlitePool {
 
 /// Create tables if they do not already exist, then apply column migrations.
 async fn run_migrations(pool: &SqlitePool) {
+    migrate_turns_table(pool).await;
+    create_supporting_tables(pool).await;
+}
+
+/// Migrate the `turns` table from the legacy schema to the current one, or create it fresh.
+async fn migrate_turns_table(pool: &SqlitePool) {
+    // If the table has legacy columns (e.g. target_food_distance) from the
+    // pre-search era, recreate it.  SQLite lacks DROP COLUMN on older versions,
+    // so we rename → create → copy → drop.
+    let has_legacy: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('turns') WHERE name = 'target_food_distance'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if has_legacy {
+        sqlx::query("ALTER TABLE turns RENAME TO _turns_old")
+            .execute(pool)
+            .await
+            .expect("Failed to rename old turns table");
+    }
+
     sqlx::query(
         r"
         CREATE TABLE IF NOT EXISTS turns (
@@ -96,24 +119,40 @@ async fn run_migrations(pool: &SqlitePool) {
     .await
     .expect("Failed to create turns table");
 
+    if has_legacy {
+        // Copy rows that exist in both schemas; new search columns get defaults.
+        let _ = sqlx::query(
+            r"
+            INSERT INTO turns (
+                game_id, turn, health, length, head_x, head_y,
+                board_width, board_height, num_snakes, num_food, num_hazards,
+                hazard_damage_per_turn, max_enemy_length, min_enemy_length,
+                length_advantage, chosen_move, search_depth, eval_score,
+                search_time_ms, recorded_at
+            )
+            SELECT
+                game_id, turn, health, length, head_x, head_y,
+                board_width, board_height, num_snakes, num_food, num_hazards,
+                hazard_damage_per_turn, max_enemy_length, min_enemy_length,
+                length_advantage, chosen_move, 0, 0,
+                0, recorded_at
+            FROM _turns_old
+            ",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query("DROP TABLE _turns_old").execute(pool).await;
+    }
+
     // Index for the most common query patterns
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_turns_game_id ON turns (game_id);")
         .execute(pool)
         .await
         .expect("Failed to create turns index");
+}
 
-    // Migrate old turns schema → new (adds search columns if missing).
-    // SQLite ALTER TABLE ADD COLUMN is a no-op if the column already exists when
-    // wrapped in a try; we just ignore the "duplicate column" error.
-    for stmt in [
-        "ALTER TABLE turns ADD COLUMN search_depth INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE turns ADD COLUMN eval_score INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE turns ADD COLUMN search_time_ms INTEGER NOT NULL DEFAULT 0",
-    ] {
-        // Ignore "duplicate column name" errors (code 1) from previous runs.
-        let _ = sqlx::query(stmt).execute(pool).await;
-    }
-
+/// Create the `outcomes` and `game_stats` tables.
+async fn create_supporting_tables(pool: &SqlitePool) {
     sqlx::query(
         r"
         CREATE TABLE IF NOT EXISTS outcomes (
