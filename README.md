@@ -1,28 +1,40 @@
 # FusionSnake
 
-FusionSnake is a [Battlesnake](https://play.battlesnake.com/) AI written in Rust (Actix Web), paired with a Python ML trainer that continuously optimises its heuristic parameters using Bayesian optimisation. The two components form a closed loop: the snake plays games and records data to SQLite; the trainer reads that data, fits a surrogate model, and pushes improved parameters back to the running snake.
+FusionSnake is a [Battlesnake](https://play.battlesnake.com/) AI written in Rust (Actix Web). It uses iterative-deepening paranoid minimax search with alpha-beta pruning to choose moves, and records game data to SQLite for analysis.
 
 ## Architecture
 
 ```
-Battlesnake engine  -->  POST /move  -->  logic::get_move()  -->  MoveResponse
+Battlesnake engine  -->  POST /move  -->  logic::get_move()
                                                |
-                                        TrainingLogger  -->  SQLite
-
-Every 24 h (Tokio interval):
-  FusionSnake  -->  POST /train  -->  trainer/server.py
-                                            |
-                                      train.py pipeline
-                                            |
-                                      POST /config  -->  HeuristicParams updated
+                                    SimBoard::from_game_state()
+                                               |
+                                    search::search() (iterative deepening
+                                      paranoid minimax + alpha-beta)
+                                               |
+                                          MoveResponse
+                                               |
+                                    TrainingLogger  -->  SQLite
 ```
+
+### Decision Algorithm
+
+1. **`SimBoard::from_game_state()`** converts the Battlesnake API types into a compact, cloneable board representation.
+2. **`search::search()`** runs iterative-deepening paranoid minimax with alpha-beta pruning:
+   - Starts at depth 1, increases until the time budget is exhausted.
+   - Enemies respond with the move that minimises our evaluation (paranoid assumption, computed independently per enemy — 4×N branching, not 4^N).
+   - Time is checked every 512 nodes; safe deadline is set to 60% of the budget.
+3. **`evaluation::evaluate()`** scores leaf/terminal positions using Voronoi area control, health, food proximity, length advantage, and aggression bonuses.
 
 ## Project Structure
 
 ```
 fusionsnake/src/
-  main.rs              — Actix server, route registration, 24 h trainer trigger
-  logic.rs             — Decision engine: scores all 4 moves and picks the best
+  main.rs              — Actix server, route registration, SecurityHeaders middleware
+  logic.rs             — Decision engine: get_move() returns (MoveResponse, MoveFeatures)
+  simulation.rs        — SimBoard: compact cloneable game state for tree search
+  evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
+  search.rs            — Iterative-deepening paranoid minimax with alpha-beta pruning
   heuristic_params.rs  — All tunable scoring constants (loaded from params.json)
   game_objects.rs      — Serde structs matching the Battlesnake API spec
   db.rs                — SQLite schema and async queries
@@ -30,15 +42,6 @@ fusionsnake/src/
   auth.rs              — X-API-Key header extractor
   responses.rs         — utoipa-annotated response structs for OpenAPI
   stats.rs             — ActiveGames tracking (Arc<Mutex>)
-
-trainer/
-  train.py             — Full 5-step ML pipeline (load, model, optimise, report, push)
-  server.py            — Flask server; POST /train triggers the pipeline
-  data_loader.py       — Fetches training data from the snake's REST API
-  model.py             — GBM surrogate win-rate model
-  optimizer.py         — Optuna Bayesian optimisation
-  param_schema.py      — Parameter bounds and defaults
-  report.py            — PDF report generation
 ```
 
 ## Running
@@ -53,27 +56,11 @@ cargo run
 
 The server listens on `0.0.0.0:6666` by default.
 
-To run the Python trainer once against a local snake:
-
-```bash
-cd trainer
-pip install -r requirements.txt
-SNAKE_URL=http://localhost:6666 API_KEY=<key> python train.py
-
-# Optimise without pushing params:
-python train.py --dry-run
-```
-
 ### Docker Compose (production)
 
 ```bash
 docker compose up -d
 ```
-
-This starts two containers:
-
-- `snek` — the Rust snake server on port 6666
-- `snake-trainer` — the Python trainer; triggers a training run on startup and exposes `POST /train` on port 5050
 
 ## API Endpoints
 
@@ -82,7 +69,7 @@ This starts two containers:
 | `GET /` | — | Snake metadata (color, head, tail) |
 | `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
-| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | ML training data |
+| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Training data |
 | `GET /config` | API key | Current heuristic parameters |
 | `POST /config` | API key | Update parameters (persists to disk) |
 | `POST /config/reset` | API key | Revert to defaults |
@@ -90,27 +77,13 @@ This starts two containers:
 
 ## Environment Variables
 
-### Snake
-
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `6666` | HTTP listen port |
 | `RUST_LOG` | `info` | Log level |
-| `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path |
+| `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode) |
 | `API_KEY` | _(unset)_ | Protects training and config endpoints |
 | `PARAMS_FILE` | `./data/params.json` | Heuristic params persistence path |
-| `TRAINER_URL` | _(unset)_ | Trainer base URL; enables the 24 h trigger |
-
-### Trainer
-
-| Variable | Default | Description |
-|---|---|---|
-| `SNAKE_URL` | `http://localhost:6666` | Snake base URL |
-| `API_KEY` | _(unset)_ | Passed in the X-API-Key header |
-| `TRAINER_PORT` | `5050` | Flask server port |
-| `MIN_TRAINING_ROWS` | `500` | Minimum rows before optimisation runs |
-| `MIN_IMPROVEMENT` | `0.02` | Win-rate delta required before pushing params |
-| `N_TRIALS` | `200` | Number of Optuna trials per run |
 
 ## Linting and Formatting
 
@@ -127,7 +100,6 @@ GitHub Actions run Clippy on every push and PR to `main`, and build and publish 
 
 ```bash
 docker pull ghcr.io/fusionstreak/fusionsnake:latest
-docker pull ghcr.io/fusionstreak/fusionsnake-trainer:latest
 ```
 
 ## Credits
