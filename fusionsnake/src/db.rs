@@ -58,7 +58,7 @@ pub async fn init() -> SqlitePool {
     pool
 }
 
-/// Create tables if they do not already exist.
+/// Create tables if they do not already exist, then apply column migrations.
 async fn run_migrations(pool: &SqlitePool) {
     sqlx::query(
         r"
@@ -101,6 +101,18 @@ async fn run_migrations(pool: &SqlitePool) {
         .execute(pool)
         .await
         .expect("Failed to create turns index");
+
+    // Migrate old turns schema → new (adds search columns if missing).
+    // SQLite ALTER TABLE ADD COLUMN is a no-op if the column already exists when
+    // wrapped in a try; we just ignore the "duplicate column" error.
+    for stmt in [
+        "ALTER TABLE turns ADD COLUMN search_depth INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE turns ADD COLUMN eval_score INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE turns ADD COLUMN search_time_ms INTEGER NOT NULL DEFAULT 0",
+    ] {
+        // Ignore "duplicate column name" errors (code 1) from previous runs.
+        let _ = sqlx::query(stmt).execute(pool).await;
+    }
 
     sqlx::query(
         r"
