@@ -25,7 +25,7 @@ use utoipa::ToSchema;
 pub struct RoyaleSettings {
     #[serde(rename = "shrinkEveryNTurns")]
     /// The number of turns between generating new hazards (shrinking the safe board space).
-    pub(super) shrink_every_nturns: u32,
+    pub(crate) shrink_every_nturns: u32,
 }
 
 /// Squad settings object
@@ -57,13 +57,13 @@ pub struct RoyaleSettings {
 
 pub struct SquadSettings {
     #[serde(rename = "allowBodyCollisions")]
-    pub(super) allow_body_collisions: bool,
+    pub(crate) allow_body_collisions: bool,
     #[serde(rename = "sharedElimination")]
-    pub(super) shared_elimination: bool,
+    pub(crate) shared_elimination: bool,
     #[serde(rename = "sharedHealth")]
-    pub(super) shared_health: bool,
+    pub(crate) shared_health: bool,
     #[serde(rename = "sharedLength")]
-    pub(super) shared_length: bool,
+    pub(crate) shared_length: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -110,13 +110,13 @@ pub struct SquadSettings {
 /// ```
 pub struct RulesetSettings {
     #[serde(rename = "foodSpawnChance")]
-    pub(super) food_spawn_chance: u32,
+    pub(crate) food_spawn_chance: u32,
     #[serde(rename = "minimumFood")]
-    pub(super) minimum_food: u32,
+    pub(crate) minimum_food: u32,
     #[serde(rename = "hazardDamagePerTurn")]
-    pub(super) hazard_damage_per_turn: u32,
-    pub(super) royale: RoyaleSettings,
-    pub(super) squad: SquadSettings,
+    pub(crate) hazard_damage_per_turn: u32,
+    pub(crate) royale: RoyaleSettings,
+    pub(crate) squad: SquadSettings,
 }
 
 /// Ruleset object
@@ -154,9 +154,9 @@ pub struct RulesetSettings {
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 
 pub struct Ruleset {
-    pub(super) name: String,
-    pub(super) version: String,
-    pub(super) settings: RulesetSettings,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) settings: RulesetSettings,
 }
 
 /// Game object
@@ -192,11 +192,11 @@ pub struct Ruleset {
 /// ```
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Game {
-    pub(super) id: String,
-    pub(super) ruleset: Ruleset,
-    pub(super) timeout: u32,
-    pub(super) map: String,
-    pub(super) source: String,
+    pub(crate) id: String,
+    pub(crate) ruleset: Ruleset,
+    pub(crate) timeout: u32,
+    pub(crate) map: String,
+    pub(crate) source: String,
 }
 
 /// Board object
@@ -238,11 +238,11 @@ pub struct Game {
 /// ```
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Board {
-    pub(super) height: u8,
-    pub(super) width: u8,
-    pub(super) food: Vec<Coord>,
-    pub(super) snakes: Vec<Battlesnake>,
-    pub(super) hazards: Vec<Coord>,
+    pub(crate) height: u8,
+    pub(crate) width: u8,
+    pub(crate) food: Vec<Coord>,
+    pub(crate) snakes: Vec<Battlesnake>,
+    pub(crate) hazards: Vec<Coord>,
 }
 
 /// Customization object
@@ -258,9 +258,9 @@ pub struct Board {
 /// * `tail` - The tail of the Battlesnake. Example: "default"
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Customization {
-    pub(super) color: String,
-    pub(super) head: String,
-    pub(super) tail: String,
+    pub(crate) color: String,
+    pub(crate) head: String,
+    pub(crate) tail: String,
 }
 
 /// Battlesnake object
@@ -308,16 +308,16 @@ pub struct Customization {
 /// ```
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Battlesnake {
-    pub(super) id: String,
-    pub(super) name: String,
-    pub(super) health: u32,
-    pub(super) body: Vec<Coord>,
-    pub(super) head: Coord,
-    pub(super) length: u32,
-    pub(super) latency: String,
-    pub(super) shout: Option<String>,
-    pub(super) squad: Option<String>,
-    pub(super) customizations: Customization,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) health: u32,
+    pub(crate) body: Vec<Coord>,
+    pub(crate) head: Coord,
+    pub(crate) length: u32,
+    pub(crate) latency: String,
+    pub(crate) shout: Option<String>,
+    pub(crate) squad: Option<String>,
+    pub(crate) customizations: Customization,
 }
 
 /// Coord object
@@ -330,11 +330,15 @@ pub struct Battlesnake {
 /// * `y` - The y-coordinate of the Coord. Example: 5
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema)]
 pub struct Coord {
-    pub(super) x: i8,
-    pub(super) y: i8,
+    pub(crate) x: i8,
+    pub(crate) y: i8,
 }
 
 impl Coord {
+    pub fn new(x: i8, y: i8) -> Self {
+        Self { x, y }
+    }
+
     pub fn distance_to(self, other: Coord) -> u8 {
         ((self.x - other.x).abs() + (self.y - other.y).abs())
             .try_into()
@@ -353,8 +357,8 @@ impl Coord {
 /// * `you` - The Battlesnake object of the `GameState`.
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct GameState {
-    pub(super) game: Game,
-    pub(super) turn: i32,
-    pub(super) board: Board,
-    pub(super) you: Battlesnake,
+    pub(crate) game: Game,
+    pub(crate) turn: i32,
+    pub(crate) board: Board,
+    pub(crate) you: Battlesnake,
 }
