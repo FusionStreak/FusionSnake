@@ -78,31 +78,15 @@ async fn run_migrations(pool: &SqlitePool) {
             num_food              INTEGER NOT NULL,
             num_hazards           INTEGER NOT NULL,
             hazard_damage_per_turn INTEGER NOT NULL,
-            -- food
-            target_food_distance  INTEGER NOT NULL,
-            target_food_contested INTEGER NOT NULL,
             -- competition
             max_enemy_length      INTEGER NOT NULL,
             min_enemy_length      INTEGER NOT NULL,
             length_advantage      INTEGER NOT NULL,
-            -- per-direction scores
-            up_safety             INTEGER NOT NULL,
-            up_desirability       INTEGER NOT NULL,
-            up_space              INTEGER NOT NULL,
-            down_safety           INTEGER NOT NULL,
-            down_desirability     INTEGER NOT NULL,
-            down_space            INTEGER NOT NULL,
-            left_safety           INTEGER NOT NULL,
-            left_desirability     INTEGER NOT NULL,
-            left_space            INTEGER NOT NULL,
-            right_safety          INTEGER NOT NULL,
-            right_desirability    INTEGER NOT NULL,
-            right_space           INTEGER NOT NULL,
-            -- decision
+            -- search metadata
             chosen_move           TEXT    NOT NULL,
-            safety_weight         INTEGER NOT NULL,
-            food_weight           INTEGER NOT NULL,
-            space_weight          INTEGER NOT NULL,
+            search_depth          INTEGER NOT NULL,
+            eval_score            INTEGER NOT NULL,
+            search_time_ms        INTEGER NOT NULL,
             -- metadata
             recorded_at           TEXT    NOT NULL
         );
@@ -281,27 +265,17 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
             health, length, head_x, head_y,
             board_width, board_height, num_snakes, num_food, num_hazards,
             hazard_damage_per_turn,
-            target_food_distance, target_food_contested,
             max_enemy_length, min_enemy_length, length_advantage,
-            up_safety, up_desirability, up_space,
-            down_safety, down_desirability, down_space,
-            left_safety, left_desirability, left_space,
-            right_safety, right_desirability, right_space,
-            chosen_move, safety_weight, food_weight, space_weight,
+            chosen_move, search_depth, eval_score, search_time_ms,
             recorded_at
         ) VALUES (
             ?1, ?2,
             ?3, ?4, ?5, ?6,
             ?7, ?8, ?9, ?10, ?11,
             ?12,
-            ?13, ?14,
-            ?15, ?16, ?17,
-            ?18, ?19, ?20,
-            ?21, ?22, ?23,
-            ?24, ?25, ?26,
-            ?27, ?28, ?29,
-            ?30, ?31, ?32, ?33,
-            ?34
+            ?13, ?14, ?15,
+            ?16, ?17, ?18, ?19,
+            ?20
         )
         ",
     )
@@ -317,27 +291,13 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
     .bind(f.num_food as i64)
     .bind(f.num_hazards as i64)
     .bind(f.hazard_damage_per_turn as i64)
-    .bind(i32::from(f.target_food_distance))
-    .bind(f.target_food_contested)
     .bind(f.max_enemy_length as i64)
     .bind(f.min_enemy_length as i64)
     .bind(f.length_advantage)
-    .bind(i32::from(f.up_safety))
-    .bind(i32::from(f.up_desirability))
-    .bind(i64::from(f.up_space))
-    .bind(i32::from(f.down_safety))
-    .bind(i32::from(f.down_desirability))
-    .bind(i64::from(f.down_space))
-    .bind(i32::from(f.left_safety))
-    .bind(i32::from(f.left_desirability))
-    .bind(i64::from(f.left_space))
-    .bind(i32::from(f.right_safety))
-    .bind(i32::from(f.right_desirability))
-    .bind(i64::from(f.right_space))
     .bind(f.chosen_move)
-    .bind(i32::from(f.safety_weight))
-    .bind(i32::from(f.food_weight))
-    .bind(i32::from(f.space_weight))
+    .bind(i32::from(f.search_depth))
+    .bind(f.eval_score)
+    .bind(f.search_time_ms as i64)
     .bind(&recorded_at)
     .execute(pool)
     .await
@@ -537,27 +497,13 @@ pub async fn get_turns(
                     num_food: r.get("num_food"),
                     num_hazards: r.get("num_hazards"),
                     hazard_damage_per_turn: r.get("hazard_damage_per_turn"),
-                    target_food_distance: r.get("target_food_distance"),
-                    target_food_contested: r.get("target_food_contested"),
                     max_enemy_length: r.get("max_enemy_length"),
                     min_enemy_length: r.get("min_enemy_length"),
                     length_advantage: r.get("length_advantage"),
-                    up_safety: r.get("up_safety"),
-                    up_desirability: r.get("up_desirability"),
-                    up_space: r.get("up_space"),
-                    down_safety: r.get("down_safety"),
-                    down_desirability: r.get("down_desirability"),
-                    down_space: r.get("down_space"),
-                    left_safety: r.get("left_safety"),
-                    left_desirability: r.get("left_desirability"),
-                    left_space: r.get("left_space"),
-                    right_safety: r.get("right_safety"),
-                    right_desirability: r.get("right_desirability"),
-                    right_space: r.get("right_space"),
                     chosen_move: r.get("chosen_move"),
-                    safety_weight: r.get("safety_weight"),
-                    food_weight: r.get("food_weight"),
-                    space_weight: r.get("space_weight"),
+                    search_depth: r.get("search_depth"),
+                    eval_score: r.get("eval_score"),
+                    search_time_ms: r.get("search_time_ms"),
                     recorded_at: r.get("recorded_at"),
                 })
                 .collect();
@@ -625,15 +571,9 @@ fn row_to_averages(row: &sqlx::sqlite::SqliteRow) -> responses::TrainingAverages
         total_turns: row.try_get("total_turns").unwrap_or(0),
         avg_health: row.try_get("avg_health").unwrap_or(0.0),
         avg_length: row.try_get("avg_length").unwrap_or(0.0),
-        avg_up_safety: row.try_get("avg_up_safety").unwrap_or(0.0),
-        avg_down_safety: row.try_get("avg_down_safety").unwrap_or(0.0),
-        avg_left_safety: row.try_get("avg_left_safety").unwrap_or(0.0),
-        avg_right_safety: row.try_get("avg_right_safety").unwrap_or(0.0),
-        avg_up_space: row.try_get("avg_up_space").unwrap_or(0.0),
-        avg_down_space: row.try_get("avg_down_space").unwrap_or(0.0),
-        avg_left_space: row.try_get("avg_left_space").unwrap_or(0.0),
-        avg_right_space: row.try_get("avg_right_space").unwrap_or(0.0),
-        avg_food_distance: row.try_get("avg_food_distance").unwrap_or(0.0),
+        avg_search_depth: row.try_get("avg_search_depth").unwrap_or(0.0),
+        avg_eval_score: row.try_get("avg_eval_score").unwrap_or(0.0),
+        avg_search_time_ms: row.try_get("avg_search_time_ms").unwrap_or(0.0),
         avg_length_advantage: row.try_get("avg_length_advantage").unwrap_or(0.0),
     }
 }
@@ -650,15 +590,9 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             COUNT(DISTINCT game_id)     AS total_games,
             AVG(health)                 AS avg_health,
             AVG(length)                 AS avg_length,
-            AVG(up_safety)              AS avg_up_safety,
-            AVG(down_safety)            AS avg_down_safety,
-            AVG(left_safety)            AS avg_left_safety,
-            AVG(right_safety)           AS avg_right_safety,
-            AVG(up_space)               AS avg_up_space,
-            AVG(down_space)             AS avg_down_space,
-            AVG(left_space)             AS avg_left_space,
-            AVG(right_space)            AS avg_right_space,
-            AVG(target_food_distance)   AS avg_food_distance,
+            AVG(search_depth)           AS avg_search_depth,
+            AVG(eval_score)             AS avg_eval_score,
+            AVG(search_time_ms)         AS avg_search_time_ms,
             AVG(length_advantage)       AS avg_length_advantage
         FROM turns
         ",
@@ -673,15 +607,9 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             COUNT(*)                    AS total_turns,
             AVG(t.health)               AS avg_health,
             AVG(t.length)               AS avg_length,
-            AVG(t.up_safety)            AS avg_up_safety,
-            AVG(t.down_safety)          AS avg_down_safety,
-            AVG(t.left_safety)          AS avg_left_safety,
-            AVG(t.right_safety)         AS avg_right_safety,
-            AVG(t.up_space)             AS avg_up_space,
-            AVG(t.down_space)           AS avg_down_space,
-            AVG(t.left_space)           AS avg_left_space,
-            AVG(t.right_space)          AS avg_right_space,
-            AVG(t.target_food_distance) AS avg_food_distance,
+            AVG(t.search_depth)         AS avg_search_depth,
+            AVG(t.eval_score)           AS avg_eval_score,
+            AVG(t.search_time_ms)       AS avg_search_time_ms,
             AVG(t.length_advantage)     AS avg_length_advantage
         FROM turns t
         JOIN outcomes o ON t.game_id = o.game_id
@@ -698,15 +626,9 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             COUNT(*)                    AS total_turns,
             AVG(t.health)               AS avg_health,
             AVG(t.length)               AS avg_length,
-            AVG(t.up_safety)            AS avg_up_safety,
-            AVG(t.down_safety)          AS avg_down_safety,
-            AVG(t.left_safety)          AS avg_left_safety,
-            AVG(t.right_safety)         AS avg_right_safety,
-            AVG(t.up_space)             AS avg_up_space,
-            AVG(t.down_space)           AS avg_down_space,
-            AVG(t.left_space)           AS avg_left_space,
-            AVG(t.right_space)          AS avg_right_space,
-            AVG(t.target_food_distance) AS avg_food_distance,
+            AVG(t.search_depth)         AS avg_search_depth,
+            AVG(t.eval_score)           AS avg_eval_score,
+            AVG(t.search_time_ms)       AS avg_search_time_ms,
             AVG(t.length_advantage)     AS avg_length_advantage
         FROM turns t
         JOIN outcomes o ON t.game_id = o.game_id
