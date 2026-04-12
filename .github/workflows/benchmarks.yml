@@ -39,14 +39,14 @@ jobs:
                   restore-keys: bench-${{ runner.os }}-
 
             - name: Run benchmarks
-              run: cargo bench --workspace --bench '*' -- --output-format json | tee bench-output.json
+              run: cargo bench --workspace --bench '*' -- --output-format bencher | tee bench-output.txt
 
             - name: Publish benchmark results
               uses: benchmark-action/github-action-benchmark@v1
               with:
                   name: FusionSnake Benchmarks
                   tool: cargo
-                  output-file-path: bench-output.json
+                  output-file-path: bench-output.txt
                   gh-pages-branch: gh-pages
                   benchmark-data-dir-path: bench
                   auto-push: true
