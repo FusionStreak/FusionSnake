@@ -321,6 +321,7 @@ impl SimBoard {
     /// that step onto a hazard when the snake would die from the damage.
     /// Returns at least one move (fallback to Up) so search always has
     /// something to try.
+    #[must_use]
     pub fn safe_moves(&self, snake_idx: usize) -> Vec<Direction> {
         let snake = &self.snakes[snake_idx];
         if !snake.alive {
