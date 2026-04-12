@@ -8,6 +8,8 @@ use log::{info, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::game_objects::GameSource;
+
 /// Tracks a currently active game.
 #[derive(Debug, Clone)]
 pub struct ActiveGame {
@@ -17,6 +19,8 @@ pub struct ActiveGame {
     pub started_at: chrono::DateTime<chrono::Utc>,
     /// Starting length of our snake.
     pub starting_length: u32,
+    /// Where the game request originated from.
+    pub source: GameSource,
 }
 
 /// Type alias for shared active games state.
