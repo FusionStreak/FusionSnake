@@ -43,5 +43,5 @@ name = "search_bench"
 harness = false
 
 [lints.clippy]
-pedantic = "warn"
-needless_for_each = "allow" # false positive from utoipa OpenApi derive macro
+pedantic = { level = "warn", priority = -1 }
+needless_for_each = "allow"                  # false positive from utoipa OpenApi derive macro
