@@ -21,6 +21,7 @@ pub fn make_board(width: i8, height: i8, snakes: Vec<SimSnake>, food: Vec<Coord>
     }
 }
 
+#[allow(dead_code)]
 pub fn default_params() -> HeuristicParams {
     HeuristicParams::default()
 }
@@ -57,6 +58,7 @@ pub fn standard_11x11_4snake() -> SimBoard {
 }
 
 /// 11×11 late-game board: two long snakes, little food.
+#[allow(dead_code)]
 pub fn late_game_11x11() -> SimBoard {
     let us = make_snake(
         &[
@@ -85,10 +87,5 @@ pub fn late_game_11x11() -> SimBoard {
         ],
         40,
     );
-    make_board(
-        11,
-        11,
-        vec![us, enemy],
-        vec![Coord::new(0, 10)],
-    )
+    make_board(11, 11, vec![us, enemy], vec![Coord::new(0, 10)])
 }
