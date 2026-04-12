@@ -2,15 +2,6 @@ name: Benchmarks
 
 on:
     workflow_dispatch:
-    push:
-        branches: ["main"]
-        paths:
-            - "fusionsnake/src/**"
-            - "fusionsnake/benches/**"
-            - "fusionsnake/Cargo.toml"
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "rust-toolchain.toml"
 
 permissions:
     contents: write
