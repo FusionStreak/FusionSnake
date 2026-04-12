@@ -335,10 +335,12 @@ pub struct Coord {
 }
 
 impl Coord {
+    #[must_use]
     pub fn new(x: i8, y: i8) -> Self {
         Self { x, y }
     }
 
+    #[must_use]
     pub fn distance_to(self, other: Coord) -> u8 {
         ((self.x - other.x).abs() + (self.y - other.y).abs())
             .try_into()
