@@ -1,6 +1,60 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::string::String;
 use utoipa::ToSchema;
+
+/// Where a game originated from, detected via the HTTP `User-Agent` header.
+///
+/// Stored as a lowercase string in `SQLite` for backward compatibility —
+/// older rows without this column are treated as [`GameSource::Unknown`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GameSource {
+    /// Official Battlesnake engine (`BattlesnakeEngine/*`).
+    Official,
+    /// A custom / local game runner.
+    Custom,
+    /// Source could not be determined (legacy rows or missing header).
+    Unknown,
+}
+
+impl GameSource {
+    /// Detect the game source from a raw `User-Agent` header value.
+    #[must_use]
+    pub fn from_user_agent(ua: Option<&str>) -> Self {
+        match ua {
+            Some(s) if s.contains("BattlesnakeEngine") => Self::Official,
+            Some(_) => Self::Custom,
+            None => Self::Unknown,
+        }
+    }
+
+    /// The string stored in `SQLite`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Official => "official",
+            Self::Custom => "custom",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl fmt::Display for GameSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<Option<String>> for GameSource {
+    fn from(val: Option<String>) -> Self {
+        match val.as_deref() {
+            Some("official") => Self::Official,
+            Some("custom") => Self::Custom,
+            _ => Self::Unknown,
+        }
+    }
+}
 
 /// Royale settings object
 ///
