@@ -89,6 +89,7 @@ impl Default for HeuristicParams {
 impl HeuristicParams {
     /// Attempt to load parameters from a JSON file.
     /// Returns `None` if the file is missing or cannot be parsed.
+    #[must_use]
     pub fn load_from_file(path: &Path) -> Option<Self> {
         match std::fs::read_to_string(path) {
             Ok(contents) => match serde_json::from_str::<Self>(&contents) {
@@ -109,6 +110,12 @@ impl HeuristicParams {
     }
 
     /// Persist the current parameters to a JSON file for crash recovery.
+    ///
+    /// Returns `Err` if the file cannot be written (e.g. due to permissions or disk issues).
+    ///
+    /// # Errors
+    ///
+    /// - `Err(String)` if serialization fails or if the file cannot be written.
     pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
 
@@ -124,6 +131,7 @@ impl HeuristicParams {
 
     /// Validate that all values are within sane bounds.
     /// Returns a list of validation errors (empty = valid).
+    #[must_use]
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
 
@@ -164,6 +172,7 @@ pub const PARAMS_FILE: &str = "/data/params.json";
 /// Tries to load from `PARAMS_FILE`, falling back to `Default`.
 /// If no file exists, persists the defaults immediately so they survive
 /// the next redeploy without requiring a trainer push first.
+#[must_use]
 pub fn create_shared_params() -> SharedParams {
     let path = std::env::var("PARAMS_FILE").unwrap_or_else(|_| PARAMS_FILE.to_string());
     let params = HeuristicParams::load_from_file(Path::new(&path)).unwrap_or_else(|| {
