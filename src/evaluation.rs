@@ -311,7 +311,9 @@ fn voronoi_area(board: &SimBoard) -> (i32, i32) {
             any_progress = true;
 
             for _ in 0..layer_size {
-                let cur = queue.pop_front().unwrap();
+                let Some(cur) = queue.pop_front() else {
+                    break;
+                };
                 let neighbors = [
                     Coord::new(cur.x, cur.y + 1),
                     Coord::new(cur.x, cur.y - 1),
