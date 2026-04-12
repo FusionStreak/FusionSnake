@@ -10,6 +10,7 @@
 use sqlx::SqlitePool;
 
 use crate::db;
+use crate::game_objects::GameSource;
 use crate::logic::MoveFeatures;
 
 /// Cheap-to-clone handle for asynchronously recording training data.
@@ -40,10 +41,20 @@ impl TrainingLogger {
         is_draw: bool,
         total_turns: u32,
         total_food_eaten: u32,
+        source: GameSource,
     ) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            db::insert_outcome(&pool, &game_id, won, is_draw, total_turns, total_food_eaten).await;
+            db::insert_outcome(
+                &pool,
+                &game_id,
+                won,
+                is_draw,
+                total_turns,
+                total_food_eaten,
+                source,
+            )
+            .await;
         });
     }
 
