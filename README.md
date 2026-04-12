@@ -29,8 +29,9 @@ Battlesnake engine  -->  POST /move  -->  logic::get_move()
 ## Project Structure
 
 ```
-fusionsnake/src/
+src/
   main.rs              — Actix server, route registration, SecurityHeaders middleware
+  lib.rs               — Public module re-exports for benchmarks
   logic.rs             — Decision engine: get_move() returns (MoveResponse, MoveFeatures)
   simulation.rs        — SimBoard: compact cloneable game state for tree search
   evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
@@ -38,10 +39,15 @@ fusionsnake/src/
   heuristic_params.rs  — All tunable scoring constants (loaded from params.json)
   game_objects.rs      — Serde structs matching the Battlesnake API spec
   db.rs                — SQLite schema and async queries
-  training.rs          — TrainingLogger: fire-and-forget Tokio writes
+  training.rs          — TrainingLogger: fire-and-forget game data recording
   auth.rs              — X-API-Key header extractor
   responses.rs         — utoipa-annotated response structs for OpenAPI
   stats.rs             — ActiveGames tracking (Arc<Mutex>)
+benches/
+  common/mod.rs        — Shared helpers for building test boards
+  simulation_bench.rs  — SimBoard::apply_moves() throughput benchmarks
+  evaluation_bench.rs  — evaluate() scoring benchmarks
+  search_bench.rs      — End-to-end search benchmarks at various depths
 ```
 
 ## Running
@@ -69,7 +75,7 @@ docker compose up -d
 | `GET /` | — | Snake metadata (color, head, tail) |
 | `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
-| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Training data |
+| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data and analytics |
 | `GET /config` | API key | Current heuristic parameters |
 | `POST /config` | API key | Update parameters (persists to disk) |
 | `POST /config/reset` | API key | Revert to defaults |
@@ -82,14 +88,15 @@ docker compose up -d
 | `PORT` | `6666` | HTTP listen port |
 | `RUST_LOG` | `info` | Log level |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode) |
-| `API_KEY` | _(unset)_ | Protects training and config endpoints |
+| `API_KEY` | _(unset)_ | Protects data and config endpoints |
 | `PARAMS_FILE` | `./data/params.json` | Heuristic params persistence path |
 
-## Linting and Formatting
+## Linting, Formatting, and Benchmarks
 
 ```bash
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo fmt --all
+cargo bench
 ```
 
 `clippy::pedantic` is enabled as a warning. All new code must pass without suppression.
