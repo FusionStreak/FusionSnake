@@ -27,6 +27,21 @@ rand = "^0.10.0"
 chrono = { version = "^0.4", features = ["serde"] }
 utoipa = { version = "5", features = ["actix_extras"] }
 
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "simulation_bench"
+harness = false
+
+[[bench]]
+name = "evaluation_bench"
+harness = false
+
+[[bench]]
+name = "search_bench"
+harness = false
+
 [lints.clippy]
 pedantic = "warn"
 needless_for_each = "allow" # false positive from utoipa OpenApi derive macro
