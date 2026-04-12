@@ -342,9 +342,7 @@ impl Coord {
 
     #[must_use]
     pub fn distance_to(self, other: Coord) -> u8 {
-        ((self.x - other.x).abs() + (self.y - other.y).abs())
-            .try_into()
-            .unwrap()
+        self.x.abs_diff(other.x) + self.y.abs_diff(other.y)
     }
 }
 /// `GameState` object
