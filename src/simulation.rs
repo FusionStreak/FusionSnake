@@ -29,6 +29,7 @@ impl Direction {
         Direction::Right,
     ];
 
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Direction::Up => "up",
@@ -39,6 +40,7 @@ impl Direction {
     }
 
     /// Apply this direction to a coordinate, returning the new position.
+    #[must_use]
     pub fn apply(self, c: Coord) -> Coord {
         match self {
             Direction::Up => Coord::new(c.x, c.y + 1),
@@ -50,6 +52,7 @@ impl Direction {
 
     /// The opposite direction (moving backwards).
     #[allow(dead_code)]
+    #[must_use]
     pub fn opposite(self) -> Direction {
         match self {
             Direction::Up => Direction::Down,
@@ -69,16 +72,19 @@ pub struct SimSnake {
 }
 
 impl SimSnake {
+    #[must_use]
     pub fn head(&self) -> Coord {
         self.body[0]
     }
 
+    #[must_use]
     pub fn length(&self) -> usize {
         self.body.len()
     }
 
     /// Whether the tail will vacate its position this turn (i.e. the snake
     /// did NOT just eat — detected by the last two segments being different).
+    #[must_use]
     pub fn tail_will_move(&self) -> bool {
         let len = self.body.len();
         if len < 2 {
@@ -102,6 +108,7 @@ pub struct SimBoard {
 impl SimBoard {
     /// Build from the Battlesnake API objects.
     /// Our snake (`you_id`) is placed at index 0.
+    #[must_use]
     pub fn from_game_state(board: &Board, you_id: &str, hazard_damage: u32) -> Self {
         let mut snakes = Vec::with_capacity(board.snakes.len());
 
@@ -141,11 +148,13 @@ impl SimBoard {
     }
 
     /// Our snake (always index 0).
+    #[must_use]
     pub fn us(&self) -> &SimSnake {
         &self.snakes[0]
     }
 
     /// Whether the game is over from our perspective.
+    #[must_use]
     pub fn is_terminal(&self) -> bool {
         if !self.snakes[0].alive {
             return true;
@@ -155,17 +164,20 @@ impl SimBoard {
     }
 
     /// Returns true if our snake is alive.
+    #[must_use]
     pub fn we_are_alive(&self) -> bool {
         self.snakes[0].alive
     }
 
     /// Returns true if we won (alive and sole survivor).
+    #[must_use]
     pub fn we_won(&self) -> bool {
         self.snakes[0].alive && self.snakes.iter().filter(|s| s.alive).count() == 1
     }
 
     /// Number of alive enemy snakes.
     #[allow(dead_code)]
+    #[must_use]
     pub fn alive_enemies(&self) -> usize {
         self.snakes.iter().skip(1).filter(|s| s.alive).count()
     }
@@ -224,8 +236,9 @@ impl SimBoard {
                 if snake.alive && snake.head() == *food {
                     snake.health = 100;
                     // Grow: duplicate the tail segment
-                    let tail = *snake.body.back().expect("snake has body");
-                    snake.body.push_back(tail);
+                    if let Some(&tail) = snake.body.back() {
+                        snake.body.push_back(tail);
+                    }
                     ate[i] = true;
                     eaten = true;
                     // Don't break — multiple snakes can eat at the same position
