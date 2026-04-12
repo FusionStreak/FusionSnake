@@ -317,8 +317,10 @@ impl SimBoard {
     }
 
     /// Get non-suicidal moves for a snake (moves that don't immediately go
-    /// out of bounds or into a known body segment).  Returns at least one
-    /// move (fallback to Up) so search always has something to try.
+    /// out of bounds or into a known body segment).  Also excludes moves
+    /// that step onto a hazard when the snake would die from the damage.
+    /// Returns at least one move (fallback to Up) so search always has
+    /// something to try.
     pub fn safe_moves(&self, snake_idx: usize) -> Vec<Direction> {
         let snake = &self.snakes[snake_idx];
         if !snake.alive {
@@ -368,9 +370,20 @@ impl SimBoard {
                 }
             }
 
-            if !blocked {
-                moves.push(dir);
+            if blocked {
+                continue;
             }
+
+            // Don't step onto a hazard if it would be instantly lethal
+            // (health - 1 turn decay - hazard_damage <= 0)
+            if self.hazard_damage > 0
+                && self.hazards.contains(&next)
+                && snake.health - 1 - self.hazard_damage <= 0
+            {
+                continue;
+            }
+
+            moves.push(dir);
         }
 
         // Always return at least one move
