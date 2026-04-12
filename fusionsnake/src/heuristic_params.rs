@@ -30,6 +30,30 @@ pub struct HeuristicParams {
     /// Bonus score when adjacent to a shorter enemy head (kill opportunity).
     pub eval_aggression_bonus: u16,
 
+    // ── safety heuristics (ported from single-ply engine) ────────────────
+    /// Penalty when flood-fill reachable area is less than our body length
+    /// (self-trap detection).  Applied proportionally to the shortfall.
+    pub eval_trap_penalty: u16,
+    /// Penalty per body segment (any snake) at Manhattan distance 1 from
+    /// our head.
+    pub eval_body_proximity_penalty: u16,
+    /// Penalty (per axis) when our head is within 1 tile of a board edge.
+    pub eval_edge_penalty: u16,
+    /// Penalty when our head is adjacent (distance ≤ 1) to an enemy head
+    /// of equal or greater length (dangerous head-to-head situation).
+    pub eval_h2h_danger_penalty: u16,
+
+    // ── food targeting ───────────────────────────────────────────────────
+    /// Discount (0–100%) applied to food proximity score when the nearest
+    /// food is contested by a longer-or-equal enemy.
+    pub eval_food_contest_discount: u16,
+
+    // ── health-adaptive thresholds ───────────────────────────────────────
+    /// Health below this triggers "desperate" mode (food score boosted).
+    pub health_threshold_desperate: u16,
+    /// Health below this (but above desperate) triggers "balanced" mode.
+    pub health_threshold_balanced: u16,
+
     // ── search parameters ────────────────────────────────────────────────
     /// Fraction of the game timeout to use for search (1–90, as a percentage).
     /// Default 50 means use 50% of the timeout for search.
@@ -46,6 +70,16 @@ impl Default for HeuristicParams {
             eval_food_weight: 5,
             eval_length_weight: 8,
             eval_aggression_bonus: 30,
+            // safety heuristics
+            eval_trap_penalty: 50,
+            eval_body_proximity_penalty: 3,
+            eval_edge_penalty: 2,
+            eval_h2h_danger_penalty: 30,
+            // food targeting
+            eval_food_contest_discount: 50,
+            // health-adaptive thresholds
+            health_threshold_desperate: 30,
+            health_threshold_balanced: 60,
             // search
             search_time_pct: 50,
         }
@@ -102,6 +136,12 @@ impl HeuristicParams {
         }
         if self.search_time_pct == 0 || self.search_time_pct > 90 {
             errors.push("search_time_pct must be between 1 and 90".into());
+        }
+        if self.eval_food_contest_discount > 100 {
+            errors.push("eval_food_contest_discount must be 0–100".into());
+        }
+        if self.health_threshold_balanced <= self.health_threshold_desperate {
+            errors.push("health_threshold_balanced must be > health_threshold_desperate".into());
         }
 
         errors
