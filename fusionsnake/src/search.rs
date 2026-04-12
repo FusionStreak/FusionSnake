@@ -171,6 +171,28 @@ struct SearchContext<'a> {
 }
 
 impl SearchContext<'_> {
+    /// Quick 1-ply evaluation to order moves for better alpha-beta pruning.
+    fn order_moves(&mut self, board: &SimBoard, moves: &[Direction]) -> Vec<Direction> {
+        if moves.len() <= 1 {
+            return moves.to_vec();
+        }
+        let mut scored: Vec<(Direction, i32)> = moves
+            .iter()
+            .map(|&dir| {
+                let mut sim = board.clone();
+                let enemy_moves = pick_enemy_moves(&sim, dir, self.params);
+                let mut all_moves = vec![dir];
+                all_moves.extend_from_slice(&enemy_moves);
+                sim.apply_moves(&all_moves);
+                self.nodes += 1;
+                let score = evaluate(&sim, self.params);
+                (dir, score)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.into_iter().map(|(d, _)| d).collect()
+    }
+
     fn minimax(
         &mut self,
         board: &SimBoard,
@@ -193,18 +215,19 @@ impl SearchContext<'_> {
         }
 
         if maximizing {
-            // Our turn: try each of our moves
+            // Our turn: try each of our moves, ordered for better pruning
             let our_moves = board.safe_moves(0);
+            let ordered = self.order_moves(board, &our_moves);
             let mut best = i32::MIN + 1;
 
-            for &dir in &our_moves {
+            for dir in &ordered {
                 if self.timed_out {
                     return best;
                 }
 
                 let mut sim = board.clone();
-                let enemy_moves = pick_enemy_moves(&sim, dir, self.params);
-                let mut all_moves = vec![dir];
+                let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
+                let mut all_moves = vec![*dir];
                 all_moves.extend_from_slice(&enemy_moves);
                 sim.apply_moves(&all_moves);
 
@@ -218,27 +241,19 @@ impl SearchContext<'_> {
             best
         } else {
             // Enemy turn: assume worst case for us.
-            // Since we already pick enemy moves in `pick_enemy_moves` when
-            // applying from the maximising node, here we evaluate the position
-            // and hand control back to the maximiser at the next depth.
-            //
-            // In the alternating model:
-            // MAX (depth N) → applies our move + enemy moves → MIN (depth N-1)
-            // MIN just evaluates and passes to next MAX.
-            //
-            // This effectively means each "depth" is a full turn (our move +
-            // enemy response), which is how Battlesnake works.
+            // Each "depth" is a full turn (our move + enemy response).
             let our_moves = board.safe_moves(0);
+            let ordered = self.order_moves(board, &our_moves);
             let mut worst = i32::MAX - 1;
 
-            for &dir in &our_moves {
+            for dir in &ordered {
                 if self.timed_out {
                     return worst;
                 }
 
                 let mut sim = board.clone();
-                let enemy_moves = pick_enemy_moves(&sim, dir, self.params);
-                let mut all_moves = vec![dir];
+                let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
+                let mut all_moves = vec![*dir];
                 all_moves.extend_from_slice(&enemy_moves);
                 sim.apply_moves(&all_moves);
 
