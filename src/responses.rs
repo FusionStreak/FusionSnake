@@ -6,6 +6,8 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use crate::game_objects::GameSource;
+
 // ---------------------------------------------------------------------------
 // Battlesnake API responses
 // ---------------------------------------------------------------------------
@@ -79,6 +81,8 @@ pub struct StatsHistoryRecord {
     pub is_draw: bool,
     pub total_turns: i64,
     pub total_food_eaten: i64,
+    /// Where the game originated (e.g. `"official"`, `"custom"`, `"unknown"`).
+    pub source: GameSource,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
     pub cumulative_wins: i64,
@@ -133,6 +137,8 @@ pub struct OutcomeRecord {
     pub is_draw: bool,
     pub total_turns: i64,
     pub total_food_eaten: i64,
+    /// Where the game originated (e.g. `"official"`, `"custom"`, `"unknown"`).
+    pub source: GameSource,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
 }
