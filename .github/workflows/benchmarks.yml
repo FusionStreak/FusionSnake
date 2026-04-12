@@ -13,6 +13,7 @@ on:
 
 permissions:
     contents: write
+    deployments: write
 
 jobs:
     benchmark:
@@ -37,17 +38,15 @@ jobs:
                   restore-keys: bench-${{ runner.os }}-
 
             - name: Run benchmarks
-              run: cargo bench --workspace -- --output-format bencher | tee bench-output.txt
+              run: cargo bench --workspace --bench '*' -- --output-format json | tee bench-output.json
 
             - name: Publish benchmark results
               uses: benchmark-action/github-action-benchmark@v1
               with:
                   name: FusionSnake Benchmarks
                   tool: cargo
-                  output-file-path: bench-output.txt
+                  output-file-path: bench-output.json
                   gh-pages-branch: gh-pages
                   benchmark-data-dir-path: bench
                   auto-push: true
-                  alert-threshold: "115%"
-                  comment-on-alert: true
-                  fail-on-alert: false
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
