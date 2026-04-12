@@ -206,6 +206,7 @@ async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
     )
 )]
 async fn handle_start(
+    req: actix_web::HttpRequest,
     game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
 ) -> HttpResponse {
@@ -216,6 +217,12 @@ async fn handle_start(
         &game_state.you,
     );
 
+    let source = game_objects::GameSource::from_user_agent(
+        req.headers()
+            .get(actix_web::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok()),
+    );
+
     // Track this new game
     if let Ok(mut games) = active_games.lock() {
         games.insert(
@@ -224,6 +231,7 @@ async fn handle_start(
                 last_turn: 0,
                 started_at: chrono::Utc::now(),
                 starting_length: game_state.you.length,
+                source,
             },
         );
 
@@ -293,23 +301,38 @@ async fn handle_end(
         &game_state.you,
     );
 
-    // Get the accurate turn count and calculate food eaten
-    let (turns, food_eaten) = if let Ok(mut games) = active_games.lock() {
+    // Get the accurate turn count, food eaten, and game source
+    let (turns, food_eaten, source) = if let Ok(mut games) = active_games.lock() {
         if let Some(game) = games.remove(&game_state.game.id) {
             let turns = game.last_turn;
             let food_eaten = game_state.you.length.saturating_sub(game.starting_length);
-            (turns, food_eaten)
+            (turns, food_eaten, game.source)
         } else {
             log::warn!("Game {} not found in active games", game_state.game.id);
-            (game_state.turn.cast_unsigned(), 0)
+            (
+                game_state.turn.cast_unsigned(),
+                0,
+                game_objects::GameSource::Unknown,
+            )
         }
     } else {
         log::error!("Failed to acquire active games lock");
-        (game_state.turn.cast_unsigned(), 0)
+        (
+            game_state.turn.cast_unsigned(),
+            0,
+            game_objects::GameSource::Unknown,
+        )
     };
 
     // Fire-and-forget: write outcome + aggregate stats to SQLite
-    training.log_outcome(game_state.game.id.clone(), won, is_draw, turns, food_eaten);
+    training.log_outcome(
+        game_state.game.id.clone(),
+        won,
+        is_draw,
+        turns,
+        food_eaten,
+        source,
+    );
     training.log_game_stats(turns, food_eaten, won, is_draw);
 
     HttpResponse::Ok().finish()
