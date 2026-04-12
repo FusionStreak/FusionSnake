@@ -1,0 +1,53 @@
+name: Benchmarks
+
+on:
+    push:
+        branches: ["main"]
+        paths:
+            - "fusionsnake/src/**"
+            - "fusionsnake/benches/**"
+            - "fusionsnake/Cargo.toml"
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "rust-toolchain.toml"
+
+permissions:
+    contents: write
+
+jobs:
+    benchmark:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+
+            - name: Cache cargo registry & build
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: bench-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: bench-${{ runner.os }}-
+
+            - name: Run benchmarks
+              run: cargo bench --workspace -- --output-format bencher | tee bench-output.txt
+
+            - name: Publish benchmark results
+              uses: benchmark-action/github-action-benchmark@v1
+              with:
+                  name: FusionSnake Benchmarks
+                  tool: cargo
+                  output-file-path: bench-output.txt
+                  gh-pages-branch: gh-pages
+                  benchmark-data-dir-path: bench
+                  auto-push: true
+                  alert-threshold: "115%"
+                  comment-on-alert: true
+                  fail-on-alert: false
