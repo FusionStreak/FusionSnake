@@ -32,6 +32,7 @@ pub struct SearchResult {
 /// Run iterative-deepening search within the given time budget.
 ///
 /// Returns the best move found at the deepest completed depth.
+#[must_use]
 pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -> SearchResult {
     let deadline = Instant::now() + std::time::Duration::from_millis(time_budget_ms);
     let safe_deadline =
