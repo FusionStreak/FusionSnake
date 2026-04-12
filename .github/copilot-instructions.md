@@ -2,9 +2,7 @@
 
 ## Architecture Overview
 
-Single Rust service that plays Battlesnake using iterative-deepening paranoid minimax search with alpha-beta pruning:
-
-- **`fusionsnake/`** — Rust/Actix Web server that plays Battlesnake and records training data to SQLite
+Single Rust service that plays Battlesnake using iterative-deepening paranoid minimax search with alpha-beta pruning. All source lives in `src/` with benchmarks in `benches/`.
 
 ### Request Flow
 
@@ -19,22 +17,32 @@ Battlesnake engine → POST /move → logic::get_move(&params)
                                training::TrainingLogger → SQLite (turns + outcomes)
 ```
 
-### Source Files
+### Source Files (`src/`)
 
-| File                  | Role                                                                                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `main.rs`             | Actix server, all route registrations, `SecurityHeaders` middleware                                              |
-| `logic.rs`            | Decision engine: `get_move()` returns `(MoveResponse, MoveFeatures)`                                             |
-| `simulation.rs`       | `SimBoard` — compact cloneable game state for tree search, `apply_moves()` with full Battlesnake rule resolution |
-| `evaluation.rs`       | Static board evaluation: Voronoi area control, health, food proximity, length advantage, aggression bonus        |
-| `search.rs`           | Iterative-deepening paranoid minimax with alpha-beta pruning and time management                                 |
-| `heuristic_params.rs` | All tunable scoring constants (`HeuristicParams`), loads from `/data/params.json`                                |
-| `game_objects.rs`     | Serde structs matching Battlesnake API spec; fields use `pub(crate)`                                             |
-| `db.rs`               | SQLite schema + async queries (`turns`, `outcomes`, `game_stats` tables)                                         |
-| `training.rs`         | `TrainingLogger` — cheap clone handle, fire-and-forget Tokio spawns                                              |
-| `auth.rs`             | `ApiKey` extractor — validates `X-API-Key` header via constant-time compare                                      |
-| `responses.rs`        | `utoipa`-annotated response structs for OpenAPI generation                                                       |
-| `stats.rs`            | `ActiveGames` (Arc<Mutex>) tracking in-progress games                                                            |
+| File                  | Role                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `main.rs`             | Actix server, all route registrations, `SecurityHeaders` middleware                                                |
+| `lib.rs`              | Public module re-exports for benchmarks (`evaluation`, `game_objects`, `heuristic_params`, `search`, `simulation`) |
+| `logic.rs`            | Decision engine: `get_move()` returns `(MoveResponse, MoveFeatures)`                                               |
+| `simulation.rs`       | `SimBoard` — compact cloneable game state for tree search, `apply_moves()` with full Battlesnake rule resolution   |
+| `evaluation.rs`       | Static board evaluation: Voronoi area control, health, food proximity, length advantage, aggression bonus          |
+| `search.rs`           | Iterative-deepening paranoid minimax with alpha-beta pruning and time management                                   |
+| `heuristic_params.rs` | All tunable scoring constants (`HeuristicParams`), loads from `/data/params.json`                                  |
+| `game_objects.rs`     | Serde structs matching Battlesnake API spec; fields use `pub(crate)`                                               |
+| `db.rs`               | SQLite schema + async queries (`turns`, `outcomes`, `game_stats` tables)                                           |
+| `training.rs`         | `TrainingLogger` — cheap clone handle, fire-and-forget Tokio spawns for game data recording                        |
+| `auth.rs`             | `ApiKey` extractor — validates `X-API-Key` header via constant-time compare                                        |
+| `responses.rs`        | `utoipa`-annotated response structs for OpenAPI generation                                                         |
+| `stats.rs`            | `ActiveGames` (Arc<Mutex>) tracking in-progress games                                                              |
+
+### Benchmarks (`benches/`)
+
+| File                  | Role                                            |
+| --------------------- | ----------------------------------------------- |
+| `common/mod.rs`       | Shared helpers for building test boards         |
+| `simulation_bench.rs` | `SimBoard::apply_moves()` throughput benchmarks |
+| `evaluation_bench.rs` | `evaluate()` scoring benchmarks                 |
+| `search_bench.rs`     | End-to-end search benchmarks at various depths  |
 
 ## Decision Algorithm
 
@@ -65,7 +73,7 @@ To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `
 | `GET /`                                                          | —       | Snake metadata (color, head, tail) |
 | `POST /start`, `/move`, `/end`                                   | —       | Battlesnake game lifecycle         |
 | `GET /stats`, `/stats/history`                                   | —       | Aggregate + per-game statistics    |
-| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | ML training data                   |
+| `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data / analytics              |
 | `GET /config`                                                    | API key | Current `HeuristicParams`          |
 | `POST /config`                                                   | API key | Update params (persists to disk)   |
 | `POST /config/reset`                                             | API key | Revert to defaults                 |
@@ -78,7 +86,7 @@ To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `
 | `PORT`         | `6666`                          | HTTP listen port                                       |
 | `RUST_LOG`     | `info`                          | Log level (uses `tracing_subscriber` with JSON format) |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode)                                 |
-| `API_KEY`      | _(unset = auth disabled)_       | Protects training/config endpoints                     |
+| `API_KEY`      | _(unset = auth disabled)_       | Protects data/config endpoints                         |
 | `PARAMS_FILE`  | `./data/params.json`            | Heuristic params persistence path                      |
 
 ## Development Workflows
@@ -88,6 +96,7 @@ To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `
 cargo run                       # Server on 0.0.0.0:6666
 cargo clippy --all-targets --all-features --locked -- -D warnings  # CI lint
 cargo fmt --all                 # Formatting
+cargo bench                     # Run Criterion benchmarks
 
 # Production
 docker compose up -d            # Starts snek container
