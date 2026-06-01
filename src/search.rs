@@ -56,7 +56,7 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
             (dir, score)
         })
         .collect();
-    ordered_moves.sort_by(|a, b| b.1.cmp(&a.1)); // best first
+    ordered_moves.sort_by_key(|b| std::cmp::Reverse(b.1)); // best first
 
     let mut best_result = SearchResult {
         best_move: ordered_moves[0].0,
@@ -190,7 +190,7 @@ impl SearchContext<'_> {
                 (dir, score)
             })
             .collect();
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_by_key(|b| std::cmp::Reverse(b.1));
         scored.into_iter().map(|(d, _)| d).collect()
     }
 
