@@ -81,6 +81,7 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
 
         let mut best_score = i32::MIN;
         let mut best_move = ordered_moves[0].0;
+        let mut alpha = i32::MIN + 1;
 
         for &(dir, _) in &ordered_moves {
             if ctx.timed_out {
@@ -94,11 +95,12 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
             all_moves.extend_from_slice(&enemy_moves);
             sim.apply_moves(&all_moves);
 
-            let score = ctx.minimax(&sim, depth - 1, i32::MIN + 1, i32::MAX - 1, false);
+            let score = ctx.minimax(&sim, depth - 1, alpha, i32::MAX - 1);
 
             if !ctx.timed_out && score > best_score {
                 best_score = score;
                 best_move = dir;
+                alpha = alpha.max(best_score);
             }
         }
 
@@ -172,36 +174,7 @@ struct SearchContext<'a> {
 }
 
 impl SearchContext<'_> {
-    /// Quick 1-ply evaluation to order moves for better alpha-beta pruning.
-    fn order_moves(&mut self, board: &SimBoard, moves: &[Direction]) -> Vec<Direction> {
-        if moves.len() <= 1 {
-            return moves.to_vec();
-        }
-        let mut scored: Vec<(Direction, i32)> = moves
-            .iter()
-            .map(|&dir| {
-                let mut sim = board.clone();
-                let enemy_moves = pick_enemy_moves(&sim, dir, self.params);
-                let mut all_moves = vec![dir];
-                all_moves.extend_from_slice(&enemy_moves);
-                sim.apply_moves(&all_moves);
-                self.nodes += 1;
-                let score = evaluate(&sim, self.params);
-                (dir, score)
-            })
-            .collect();
-        scored.sort_by_key(|b| std::cmp::Reverse(b.1));
-        scored.into_iter().map(|(d, _)| d).collect()
-    }
-
-    fn minimax(
-        &mut self,
-        board: &SimBoard,
-        depth: u8,
-        mut alpha: i32,
-        mut beta: i32,
-        maximizing: bool,
-    ) -> i32 {
+    fn minimax(&mut self, board: &SimBoard, depth: u8, mut alpha: i32, beta: i32) -> i32 {
         self.nodes += 1;
 
         // Time check every 512 nodes
@@ -215,58 +188,30 @@ impl SearchContext<'_> {
             return evaluate(board, self.params);
         }
 
-        if maximizing {
-            // Our turn: try each of our moves, ordered for better pruning
-            let our_moves = board.safe_moves(0);
-            let ordered = self.order_moves(board, &our_moves);
-            let mut best = i32::MIN + 1;
+        // Our turn: try each of our moves. Enemies respond adversarially via
+        // pick_enemy_moves at every ply — no separate minimizing ply needed.
+        let our_moves = board.safe_moves(0);
+        let mut best = i32::MIN + 1;
 
-            for dir in &ordered {
-                if self.timed_out {
-                    return best;
-                }
-
-                let mut sim = board.clone();
-                let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
-                let mut all_moves = vec![*dir];
-                all_moves.extend_from_slice(&enemy_moves);
-                sim.apply_moves(&all_moves);
-
-                let score = self.minimax(&sim, depth - 1, alpha, beta, false);
-                best = best.max(score);
-                alpha = alpha.max(best);
-                if alpha >= beta {
-                    break; // beta cutoff
-                }
+        for dir in &our_moves {
+            if self.timed_out {
+                return best;
             }
-            best
-        } else {
-            // Enemy turn: assume worst case for us.
-            // Each "depth" is a full turn (our move + enemy response).
-            let our_moves = board.safe_moves(0);
-            let ordered = self.order_moves(board, &our_moves);
-            let mut worst = i32::MAX - 1;
 
-            for dir in &ordered {
-                if self.timed_out {
-                    return worst;
-                }
+            let mut sim = board.clone();
+            let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
+            let mut all_moves = vec![*dir];
+            all_moves.extend_from_slice(&enemy_moves);
+            sim.apply_moves(&all_moves);
 
-                let mut sim = board.clone();
-                let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
-                let mut all_moves = vec![*dir];
-                all_moves.extend_from_slice(&enemy_moves);
-                sim.apply_moves(&all_moves);
-
-                let score = self.minimax(&sim, depth - 1, alpha, beta, true);
-                worst = worst.min(score);
-                beta = beta.min(worst);
-                if alpha >= beta {
-                    break; // alpha cutoff
-                }
+            let score = self.minimax(&sim, depth - 1, alpha, beta);
+            best = best.max(score);
+            alpha = alpha.max(best);
+            if alpha >= beta {
+                break;
             }
-            worst
         }
+        best
     }
 }
 
