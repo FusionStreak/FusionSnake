@@ -5,4 +5,6 @@ WORKDIR /usr/app
 
 RUN cargo install --path .
 
+EXPOSE 6666
+
 CMD [ "fusion-snake" ]
