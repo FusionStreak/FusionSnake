@@ -12,18 +12,18 @@ A simple Battlesnake written in Rust
 """
 
 [dependencies]
-actix-web = "^4.9"
+actix-web = "^4.14"
 actix-cors = "^0.7"
 actix-rt = "^2.10"
 tokio = { version = "^1", features = ["sync", "fs", "io-util"] }
 futures-util = "^0.3"
-serde = { version = "^1.0.219", features = ["derive"] }
-serde_json = "^1.0.140"
+serde = { version = "^1.0.229", features = ["derive"] }
+serde_json = "^1.0.151"
 sqlx = { version = "^0.9", features = ["runtime-tokio", "sqlite"] }
-log = "^0.4.30"
+log = "^0.4.33"
 tracing = "^0.1"
 tracing-subscriber = { version = "^0.3", features = ["json", "env-filter"] }
-rand = "^0.10.0"
+rand = "^0.10.2"
 chrono = { version = "^0.4", features = ["serde"] }
 utoipa = { version = "5", features = ["actix_extras"] }
 
