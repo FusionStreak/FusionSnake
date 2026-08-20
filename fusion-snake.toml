@@ -1,0 +1,17 @@
+name = "FusionSnake"
+slug = "fusion-snake"
+repo = "https://github.com/FusionStreak/FusionSnake.git"
+dockerfile = "./src/Dockerfile"
+port = 6666
+description = "Iterative-deepening paranoid minimax with alpha-beta pruning and Voronoi area control."
+
+[meta]
+author = "FusionStreak"
+strategy = "Paranoid Minimax + Alpha-Beta"
+color = "#f54a00"
+head = "pixel-round"
+tail = "mlh-gene"
+
+[env]
+PORT = "6666"
+RUST_LOG = "info"
