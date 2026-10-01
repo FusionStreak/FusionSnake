@@ -1,38 +1,38 @@
 name: Dependabot PR validation
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "src/**"
-      - ".github/workflows/**"
+    pull_request:
+        branches: [main]
+        paths:
+            - "Cargo.toml"
+            - "Cargo.lock"
+            - "src/**"
+            - ".github/workflows/**"
 
 permissions:
-  contents: read
+    contents: read
 
 jobs:
-  validate-dependency-update:
-    if: github.actor == 'dependabot[bot]' || contains(github.event.pull_request.labels.*.name, 'dependencies')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    validate-dependency-update:
+        if: github.actor == 'dependabot[bot]' || contains(github.event.pull_request.labels.*.name, 'dependencies')
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy, rustfmt
 
-      - name: Cache cargo data
-        uses: Swatinem/rust-cache@v2
+            - name: Cache cargo data
+              uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+            - name: Check formatting
+              run: cargo fmt --all -- --check
 
-      - name: Run tests
-        run: cargo test --locked --workspace
+            - name: Run tests
+              run: cargo test --locked --workspace
 
-      - name: Lint with Clippy
-        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+            - name: Lint with Clippy
+              run: cargo clippy --all-targets --all-features --locked -- -D warnings
