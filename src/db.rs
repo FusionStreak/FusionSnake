@@ -624,7 +624,10 @@ pub async fn get_outcomes(
                     is_draw: r.get("is_draw"),
                     total_turns: r.get("total_turns"),
                     total_food_eaten: r.get("total_food_eaten"),
-                    source: r.try_get::<Option<String>, _>("source").unwrap_or(None).into(),
+                    source: r
+                        .try_get::<Option<String>, _>("source")
+                        .unwrap_or(None)
+                        .into(),
                     recorded_at: r.get("recorded_at"),
                 })
                 .collect();
@@ -798,7 +801,10 @@ pub async fn get_stats_history(
                         is_draw: r.get("is_draw"),
                         total_turns: r.get("total_turns"),
                         total_food_eaten: r.get("total_food_eaten"),
-                        source: r.try_get::<Option<String>, _>("source").unwrap_or(None).into(),
+                        source: r
+                            .try_get::<Option<String>, _>("source")
+                            .unwrap_or(None)
+                            .into(),
                         recorded_at: r.get("recorded_at"),
                         cumulative_wins: cum_wins,
                         cumulative_games: cum_games,
