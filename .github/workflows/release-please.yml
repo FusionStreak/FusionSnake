@@ -16,7 +16,7 @@ jobs:
         steps:
             - name: Create or update release PR
               id: release
-              uses: googleapis/release-please-action@v4
+              uses: googleapis/release-please-action@v5
               with:
                   # If you want workflows to run on release PRs, create a PAT and add it to
                   # repository secrets as RELEASE_PLEASE_TOKEN.
