@@ -16,7 +16,7 @@ use std::env;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::game_objects::GameSource;
+use crate::game_objects::{GameSource, GameType};
 use crate::logic::MoveFeatures;
 use crate::responses;
 
@@ -164,6 +164,7 @@ async fn create_supporting_tables(pool: &SqlitePool) {
             total_turns     INTEGER NOT NULL,
             total_food_eaten INTEGER NOT NULL,
             source          TEXT,
+            game_type       TEXT,
             recorded_at     TEXT    NOT NULL
         );
         ",
@@ -199,25 +200,39 @@ async fn create_supporting_tables(pool: &SqlitePool) {
         .expect("Failed to seed game_stats row");
 }
 
-/// Add the `source` column to `outcomes` for existing databases.
+/// Add schema columns to `outcomes` for existing databases.
 ///
-/// New databases get it from the `CREATE TABLE IF NOT EXISTS` above, but
-/// databases created before this column existed need an `ALTER TABLE`.
-/// The column is nullable so older rows simply read as `NULL` (→ `Unknown`).
+/// New databases get them from the `CREATE TABLE IF NOT EXISTS` above, but
+/// older databases need `ALTER TABLE` migrations.
 async fn migrate_outcomes_source_column(pool: &SqlitePool) {
-    let has_column: bool = sqlx::query_scalar(
+    let has_source: bool = sqlx::query_scalar(
         "SELECT COUNT(*) > 0 FROM pragma_table_info('outcomes') WHERE name = 'source'",
     )
     .fetch_one(pool)
     .await
     .unwrap_or(false);
 
-    if !has_column {
+    if !has_source {
         sqlx::query("ALTER TABLE outcomes ADD COLUMN source TEXT")
             .execute(pool)
             .await
             .expect("Failed to add source column to outcomes");
         info!("Migrated outcomes table: added 'source' column");
+    }
+
+    let has_game_type: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('outcomes') WHERE name = 'game_type'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_game_type {
+        sqlx::query("ALTER TABLE outcomes ADD COLUMN game_type TEXT")
+            .execute(pool)
+            .await
+            .expect("Failed to add game_type column to outcomes");
+        info!("Migrated outcomes table: added 'game_type' column");
     }
 }
 
@@ -391,14 +406,15 @@ pub async fn insert_outcome(
     total_turns: u32,
     total_food_eaten: u32,
     source: GameSource,
+    game_type: GameType,
 ) {
     let recorded_at = chrono::Utc::now().to_rfc3339();
 
     if let Err(e) = sqlx::query(
         r"
         INSERT OR REPLACE INTO outcomes
-            (game_id, won, is_draw, total_turns, total_food_eaten, source, recorded_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, recorded_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ",
     )
     .bind(game_id)
@@ -407,6 +423,7 @@ pub async fn insert_outcome(
     .bind(i64::from(total_turns))
     .bind(i64::from(total_food_eaten))
     .bind(source.as_str())
+    .bind(game_type.as_str())
     .bind(&recorded_at)
     .execute(pool)
     .await
@@ -628,6 +645,10 @@ pub async fn get_outcomes(
                         .try_get::<Option<String>, _>("source")
                         .unwrap_or(None)
                         .into(),
+                    game_type: r
+                        .try_get::<Option<String>, _>("game_type")
+                        .unwrap_or(None)
+                        .into(),
                     recorded_at: r.get("recorded_at"),
                 })
                 .collect();
@@ -771,6 +792,7 @@ pub async fn get_stats_history(
             o.total_turns,
             o.total_food_eaten,
             o.source,
+            o.game_type,
             o.recorded_at,
             -- running aggregates
             SUM(o.won) OVER (ORDER BY o.recorded_at ROWS UNBOUNDED PRECEDING) AS cumulative_wins,
@@ -803,6 +825,10 @@ pub async fn get_stats_history(
                         total_food_eaten: r.get("total_food_eaten"),
                         source: r
                             .try_get::<Option<String>, _>("source")
+                            .unwrap_or(None)
+                            .into(),
+                        game_type: r
+                            .try_get::<Option<String>, _>("game_type")
                             .unwrap_or(None)
                             .into(),
                         recorded_at: r.get("recorded_at"),

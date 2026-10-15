@@ -8,7 +8,7 @@ use log::{info, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::game_objects::GameSource;
+use crate::game_objects::{GameSource, GameType};
 
 /// Tracks a currently active game.
 #[derive(Debug, Clone)]
@@ -21,6 +21,8 @@ pub struct ActiveGame {
     pub starting_length: u32,
     /// Where the game request originated from.
     pub source: GameSource,
+    /// The game mode inferred from ruleset and board size.
+    pub game_type: GameType,
 }
 
 /// Type alias for shared active games state.

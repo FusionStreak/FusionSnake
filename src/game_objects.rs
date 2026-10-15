@@ -12,6 +12,8 @@ use utoipa::ToSchema;
 pub enum GameSource {
     /// Official Battlesnake engine (`BattlesnakeEngine/*`).
     Official,
+    /// Official Battlesnake Arena (`BattlesnakeArena/*`).
+    OfficialArena,
     /// A custom / local game runner.
     Custom,
     /// Source could not be determined (legacy rows or missing header).
@@ -23,6 +25,7 @@ impl GameSource {
     #[must_use]
     pub fn from_user_agent(ua: Option<&str>) -> Self {
         match ua {
+            Some(s) if s.contains("BattlesnakeArena") => Self::OfficialArena,
             Some(s) if s.contains("BattlesnakeEngine") => Self::Official,
             Some(_) => Self::Custom,
             None => Self::Unknown,
@@ -34,6 +37,7 @@ impl GameSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Official => "official",
+            Self::OfficialArena => "official_arena",
             Self::Custom => "custom",
             Self::Unknown => "unknown",
         }
@@ -50,7 +54,74 @@ impl From<Option<String>> for GameSource {
     fn from(val: Option<String>) -> Self {
         match val.as_deref() {
             Some("official") => Self::Official,
+            Some("official_arena") => Self::OfficialArena,
             Some("custom") => Self::Custom,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The game mode being played, inferred from the ruleset and board shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GameType {
+    Duel,
+    Standard,
+    BattleRoyal,
+    Constrictor,
+    Unknown,
+}
+
+impl GameType {
+    #[must_use]
+    pub fn from_game_state(game: &Game, board: &Board) -> Self {
+        let ruleset_name = game.ruleset.name.trim().to_ascii_lowercase();
+        match ruleset_name.as_str() {
+            "duel" => Self::Duel,
+            "royale" => Self::BattleRoyal,
+            "constrictor" => Self::Constrictor,
+            "standard" => {
+                if board.width == 11 && board.height == 11 {
+                    Self::Standard
+                } else {
+                    Self::Unknown
+                }
+            }
+            _ => {
+                if board.width == 11 && board.height == 11 {
+                    Self::Standard
+                } else {
+                    Self::Unknown
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Duel => "duel",
+            Self::Standard => "standard",
+            Self::BattleRoyal => "battle_royal",
+            Self::Constrictor => "constrictor",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl fmt::Display for GameType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<Option<String>> for GameType {
+    fn from(val: Option<String>) -> Self {
+        match val.as_deref() {
+            Some("duel") => Self::Duel,
+            Some("standard") => Self::Standard,
+            Some("battle_royal") | Some("battle_royale") => Self::BattleRoyal,
+            Some("constrictor") => Self::Constrictor,
             _ => Self::Unknown,
         }
     }
