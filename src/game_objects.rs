@@ -12,6 +12,8 @@ use utoipa::ToSchema;
 pub enum GameSource {
     /// Official Battlesnake engine (`BattlesnakeEngine/*`).
     Official,
+    /// Official Battlesnake Arena (`BattlesnakeArena/*`).
+    OfficialArena,
     /// A custom / local game runner.
     Custom,
     /// Source could not be determined (legacy rows or missing header).
@@ -23,6 +25,7 @@ impl GameSource {
     #[must_use]
     pub fn from_user_agent(ua: Option<&str>) -> Self {
         match ua {
+            Some(s) if s.contains("BattlesnakeArena") => Self::OfficialArena,
             Some(s) if s.contains("BattlesnakeEngine") => Self::Official,
             Some(_) => Self::Custom,
             None => Self::Unknown,
@@ -34,6 +37,7 @@ impl GameSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Official => "official",
+            Self::OfficialArena => "official_arena",
             Self::Custom => "custom",
             Self::Unknown => "unknown",
         }
@@ -50,7 +54,74 @@ impl From<Option<String>> for GameSource {
     fn from(val: Option<String>) -> Self {
         match val.as_deref() {
             Some("official") => Self::Official,
+            Some("official_arena") => Self::OfficialArena,
             Some("custom") => Self::Custom,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// The game mode being played, inferred from the ruleset and board shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GameType {
+    Duel,
+    Standard,
+    BattleRoyal,
+    Constrictor,
+    Unknown,
+}
+
+impl GameType {
+    #[must_use]
+    pub fn from_game_state(game: &Game, board: &Board) -> Self {
+        let ruleset_name = game.ruleset.name.trim().to_ascii_lowercase();
+        match ruleset_name.as_str() {
+            "duel" => Self::Duel,
+            "royale" => Self::BattleRoyal,
+            "constrictor" => Self::Constrictor,
+            "standard" => {
+                if board.width == 11 && board.height == 11 {
+                    Self::Standard
+                } else {
+                    Self::Unknown
+                }
+            }
+            _ => {
+                if board.width == 11 && board.height == 11 {
+                    Self::Standard
+                } else {
+                    Self::Unknown
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Duel => "duel",
+            Self::Standard => "standard",
+            Self::BattleRoyal => "battle_royal",
+            Self::Constrictor => "constrictor",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl fmt::Display for GameType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<Option<String>> for GameType {
+    fn from(val: Option<String>) -> Self {
+        match val.as_deref() {
+            Some("duel") => Self::Duel,
+            Some("standard") => Self::Standard,
+            Some("battle_royal") | Some("battle_royale") => Self::BattleRoyal,
+            Some("constrictor") => Self::Constrictor,
             _ => Self::Unknown,
         }
     }
@@ -69,17 +140,24 @@ impl From<Option<String>> for GameSource {
 /// # Examples
 ///
 /// ```
-/// use game_objects::RoyaleSettings;
+/// use fusion_snake::game_objects::RoyaleSettings;
 ///
 /// let royale_settings = RoyaleSettings {
-///    shrink_every_n_turns: 10,
+///    shrink_every_nturns: 10,
 /// };
 /// ```
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct RoyaleSettings {
     #[serde(rename = "shrinkEveryNTurns")]
     /// The number of turns between generating new hazards (shrinking the safe board space).
-    pub(crate) shrink_every_nturns: u32,
+    pub shrink_every_nturns: u32,
+}
+
+impl RoyaleSettings {
+    #[must_use]
+    pub fn new(shrink_every_nturns: u32) -> Self {
+        Self { shrink_every_nturns }
+    }
 }
 
 /// Squad settings object
@@ -97,7 +175,7 @@ pub struct RoyaleSettings {
 ///
 /// # Examples
 /// ```
-/// use game_objects::SquadSettings;
+/// use fusion_snake::game_objects::SquadSettings;
 ///
 /// let squad_settings = SquadSettings {
 ///     allow_body_collisions: true,
@@ -111,13 +189,30 @@ pub struct RoyaleSettings {
 
 pub struct SquadSettings {
     #[serde(rename = "allowBodyCollisions")]
-    pub(crate) allow_body_collisions: bool,
+    pub allow_body_collisions: bool,
     #[serde(rename = "sharedElimination")]
-    pub(crate) shared_elimination: bool,
+    pub shared_elimination: bool,
     #[serde(rename = "sharedHealth")]
-    pub(crate) shared_health: bool,
+    pub shared_health: bool,
     #[serde(rename = "sharedLength")]
-    pub(crate) shared_length: bool,
+    pub shared_length: bool,
+}
+
+impl SquadSettings {
+    #[must_use]
+    pub fn new(
+        allow_body_collisions: bool,
+        shared_elimination: bool,
+        shared_health: bool,
+        shared_length: bool,
+    ) -> Self {
+        Self {
+            allow_body_collisions,
+            shared_elimination,
+            shared_health,
+            shared_length,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -139,12 +234,10 @@ pub struct SquadSettings {
 /// # Examples
 ///
 /// ```
-/// use game_objects::RulesetSettings;
-/// use game_objects::RoyaleSettings;
-/// use game_objects::SquadSettings;
+/// use fusion_snake::game_objects::{RoyaleSettings, RulesetSettings, SquadSettings};
 ///
 /// let royale_settings = RoyaleSettings {
-///     shrink_every_n_turns: 10,
+///     shrink_every_nturns: 10,
 /// };
 ///
 /// let squad_settings = SquadSettings {
@@ -164,13 +257,32 @@ pub struct SquadSettings {
 /// ```
 pub struct RulesetSettings {
     #[serde(rename = "foodSpawnChance")]
-    pub(crate) food_spawn_chance: u32,
+    pub food_spawn_chance: u32,
     #[serde(rename = "minimumFood")]
-    pub(crate) minimum_food: u32,
+    pub minimum_food: u32,
     #[serde(rename = "hazardDamagePerTurn")]
-    pub(crate) hazard_damage_per_turn: u32,
-    pub(crate) royale: RoyaleSettings,
-    pub(crate) squad: SquadSettings,
+    pub hazard_damage_per_turn: u32,
+    pub royale: RoyaleSettings,
+    pub squad: SquadSettings,
+}
+
+impl RulesetSettings {
+    #[must_use]
+    pub fn new(
+        food_spawn_chance: u32,
+        minimum_food: u32,
+        hazard_damage_per_turn: u32,
+        royale: RoyaleSettings,
+        squad: SquadSettings,
+    ) -> Self {
+        Self {
+            food_spawn_chance,
+            minimum_food,
+            hazard_damage_per_turn,
+            royale,
+            squad,
+        }
+    }
 }
 
 /// Ruleset object
@@ -188,15 +300,19 @@ pub struct RulesetSettings {
 /// # Examples
 ///
 /// ```
-/// use game_objects::Ruleset;
-/// use game_objects::RulesetSettings;
+/// use fusion_snake::game_objects::{Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
 ///
 /// let ruleset_settings = RulesetSettings {
 ///     food_spawn_chance: 15,
 ///     minimum_food: 1,
 ///     hazard_damage_per_turn: 15,
-///     royale: royale_settings,
-///     squad: squad_settings,
+///     royale: RoyaleSettings { shrink_every_nturns: 10 },
+///     squad: SquadSettings {
+///         allow_body_collisions: true,
+///         shared_elimination: true,
+///         shared_health: true,
+///         shared_length: true,
+///     },
 /// };
 ///
 /// let ruleset = Ruleset {
@@ -208,9 +324,20 @@ pub struct RulesetSettings {
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 
 pub struct Ruleset {
-    pub(crate) name: String,
-    pub(crate) version: String,
-    pub(crate) settings: RulesetSettings,
+    pub name: String,
+    pub version: String,
+    pub settings: RulesetSettings,
+}
+
+impl Ruleset {
+    #[must_use]
+    pub fn new(name: String, version: String, settings: RulesetSettings) -> Self {
+        Self {
+            name,
+            version,
+            settings,
+        }
+    }
 }
 
 /// Game object
@@ -235,22 +362,55 @@ pub struct Ruleset {
 /// # Examples
 ///
 /// ```
-/// use serde::json::Json;
-/// use serde_json::Value;
 /// use std::collections::HashMap;
+/// use serde_json::Value;
+/// use fusion_snake::game_objects::{Game, Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
 ///
-/// use game_objects::Game;
+/// let ruleset = Ruleset {
+///     name: "standard".to_string(),
+///     version: "v1".to_string(),
+///     settings: RulesetSettings {
+///         food_spawn_chance: 15,
+///         minimum_food: 1,
+///         hazard_damage_per_turn: 15,
+///         royale: RoyaleSettings { shrink_every_nturns: 10 },
+///         squad: SquadSettings {
+///             allow_body_collisions: true,
+///             shared_elimination: true,
+///             shared_health: true,
+///             shared_length: true,
+///         },
+///     },
+/// };
 ///
-/// let ruleset: HashMap<String, Value> = HashMap::new();
-/// let game = Game::new("game-id".to_string(), ruleset, 500, "standard".to_string(), "custom".to_string());
+/// let game = Game {
+///     id: "game-id".to_string(),
+///     ruleset,
+///     timeout: 500,
+///     map: "standard".to_string(),
+///     source: "custom".to_string(),
+/// };
 /// ```
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct Game {
-    pub(crate) id: String,
-    pub(crate) ruleset: Ruleset,
-    pub(crate) timeout: u32,
-    pub(crate) map: String,
-    pub(crate) source: String,
+    pub id: String,
+    pub ruleset: Ruleset,
+    pub timeout: u32,
+    pub map: String,
+    pub source: String,
+}
+
+impl Game {
+    #[must_use]
+    pub fn new(id: String, ruleset: Ruleset, timeout: u32, map: String, source: String) -> Self {
+        Self {
+            id,
+            ruleset,
+            timeout,
+            map,
+            source,
+        }
+    }
 }
 
 /// Board object

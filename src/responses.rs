@@ -6,7 +6,7 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::game_objects::GameSource;
+use crate::game_objects::{GameSource, GameType};
 
 // ---------------------------------------------------------------------------
 // Battlesnake API responses
@@ -81,8 +81,12 @@ pub struct StatsHistoryRecord {
     pub is_draw: bool,
     pub total_turns: i64,
     pub total_food_eaten: i64,
-    /// Where the game originated (e.g. `"official"`, `"custom"`, `"unknown"`).
+    /// Where the game originated (e.g. `"official"`, `"official_arena"`, `"custom"`, `"unknown"`).
     pub source: GameSource,
+    /// The game mode (`"duel"`, `"standard"`, `"battle_royale"`, `"constrictor"`, `"unknown"`).
+    pub game_type: GameType,
+    /// Maximum snake length reached in the game.
+    pub max_length_reached: i64,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
     pub cumulative_wins: i64,
@@ -137,8 +141,12 @@ pub struct OutcomeRecord {
     pub is_draw: bool,
     pub total_turns: i64,
     pub total_food_eaten: i64,
-    /// Where the game originated (e.g. `"official"`, `"custom"`, `"unknown"`).
+    /// Where the game originated (e.g. `"official"`, `"official_arena"`, `"custom"`, `"unknown"`).
     pub source: GameSource,
+    /// The game mode (`"duel"`, `"standard"`, `"battle_royale"`, `"constrictor"`, `"unknown"`).
+    pub game_type: GameType,
+    /// Maximum snake length reached in the game.
+    pub max_length_reached: i64,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
 }
