@@ -85,6 +85,8 @@ pub struct StatsHistoryRecord {
     pub source: GameSource,
     /// The game mode (`"duel"`, `"standard"`, `"battle_royale"`, `"constrictor"`, `"unknown"`).
     pub game_type: GameType,
+    /// Maximum snake length reached in the game.
+    pub max_length_reached: i64,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
     pub cumulative_wins: i64,
@@ -143,6 +145,8 @@ pub struct OutcomeRecord {
     pub source: GameSource,
     /// The game mode (`"duel"`, `"standard"`, `"battle_royale"`, `"constrictor"`, `"unknown"`).
     pub game_type: GameType,
+    /// Maximum snake length reached in the game.
+    pub max_length_reached: i64,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
 }

@@ -233,6 +233,7 @@ async fn handle_start(
                 last_turn: 0,
                 started_at: chrono::Utc::now(),
                 starting_length: game_state.you.length,
+                max_length_reached: game_state.you.length,
                 source,
                 game_type,
             },
@@ -278,6 +279,7 @@ async fn handle_move(
         && let Some(game) = games.get_mut(&game_state.game.id)
     {
         game.last_turn = game_state.turn.cast_unsigned();
+        game.max_length_reached = game.max_length_reached.max(game_state.you.length);
     }
 
     HttpResponse::Ok().json(response)
@@ -305,11 +307,17 @@ async fn handle_end(
     );
 
     // Get the accurate turn count, food eaten, source, and game type
-    let (turns, food_eaten, source, game_type) = if let Ok(mut games) = active_games.lock() {
+    let (turns, food_eaten, source, game_type, max_length_reached) = if let Ok(mut games) = active_games.lock() {
         if let Some(game) = games.remove(&game_state.game.id) {
             let turns = game.last_turn;
             let food_eaten = game_state.you.length.saturating_sub(game.starting_length);
-            (turns, food_eaten, game.source, game.game_type)
+            (
+                turns,
+                food_eaten,
+                game.source,
+                game.game_type,
+                game.max_length_reached,
+            )
         } else {
             log::warn!("Game {} not found in active games", game_state.game.id);
             (
@@ -317,6 +325,7 @@ async fn handle_end(
                 0,
                 game_objects::GameSource::Unknown,
                 game_objects::GameType::from_game_state(&game_state.game, &game_state.board),
+                game_state.you.length,
             )
         }
     } else {
@@ -326,6 +335,7 @@ async fn handle_end(
             0,
             game_objects::GameSource::Unknown,
             game_objects::GameType::from_game_state(&game_state.game, &game_state.board),
+            game_state.you.length,
         )
     };
 
@@ -338,6 +348,7 @@ async fn handle_end(
         food_eaten,
         source,
         game_type,
+        max_length_reached,
     );
     training.log_game_stats(turns, food_eaten, won, is_draw);
 

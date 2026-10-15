@@ -43,6 +43,7 @@ impl TrainingLogger {
         total_food_eaten: u32,
         source: GameSource,
         game_type: GameType,
+        max_length_reached: u32,
     ) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
@@ -55,6 +56,7 @@ impl TrainingLogger {
                 total_food_eaten,
                 source,
                 game_type,
+                max_length_reached,
             )
             .await;
         });

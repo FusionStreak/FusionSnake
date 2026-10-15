@@ -165,6 +165,7 @@ async fn create_supporting_tables(pool: &SqlitePool) {
             total_food_eaten INTEGER NOT NULL,
             source          TEXT,
             game_type       TEXT,
+            max_length_reached INTEGER NOT NULL DEFAULT 0,
             recorded_at     TEXT    NOT NULL
         );
         ",
@@ -233,6 +234,21 @@ async fn migrate_outcomes_source_column(pool: &SqlitePool) {
             .await
             .expect("Failed to add game_type column to outcomes");
         info!("Migrated outcomes table: added 'game_type' column");
+    }
+
+    let has_max_length_reached: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('outcomes') WHERE name = 'max_length_reached'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_max_length_reached {
+        sqlx::query("ALTER TABLE outcomes ADD COLUMN max_length_reached INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .expect("Failed to add max_length_reached column to outcomes");
+        info!("Migrated outcomes table: added 'max_length_reached' column");
     }
 }
 
@@ -407,14 +423,15 @@ pub async fn insert_outcome(
     total_food_eaten: u32,
     source: GameSource,
     game_type: GameType,
+    max_length_reached: u32,
 ) {
     let recorded_at = chrono::Utc::now().to_rfc3339();
 
     if let Err(e) = sqlx::query(
         r"
         INSERT OR REPLACE INTO outcomes
-            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, recorded_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, max_length_reached, recorded_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ",
     )
     .bind(game_id)
@@ -424,6 +441,7 @@ pub async fn insert_outcome(
     .bind(i64::from(total_food_eaten))
     .bind(source.as_str())
     .bind(game_type.as_str())
+    .bind(i64::from(max_length_reached))
     .bind(&recorded_at)
     .execute(pool)
     .await
@@ -649,6 +667,7 @@ pub async fn get_outcomes(
                         .try_get::<Option<String>, _>("game_type")
                         .unwrap_or(None)
                         .into(),
+                    max_length_reached: r.try_get("max_length_reached").unwrap_or(0),
                     recorded_at: r.get("recorded_at"),
                 })
                 .collect();
@@ -793,6 +812,7 @@ pub async fn get_stats_history(
             o.total_food_eaten,
             o.source,
             o.game_type,
+            o.max_length_reached,
             o.recorded_at,
             -- running aggregates
             SUM(o.won) OVER (ORDER BY o.recorded_at ROWS UNBOUNDED PRECEDING) AS cumulative_wins,
@@ -831,6 +851,7 @@ pub async fn get_stats_history(
                             .try_get::<Option<String>, _>("game_type")
                             .unwrap_or(None)
                             .into(),
+                        max_length_reached: r.try_get("max_length_reached").unwrap_or(0),
                         recorded_at: r.get("recorded_at"),
                         cumulative_wins: cum_wins,
                         cumulative_games: cum_games,
