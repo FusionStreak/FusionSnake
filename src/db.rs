@@ -244,10 +244,12 @@ async fn migrate_outcomes_source_column(pool: &SqlitePool) {
     .unwrap_or(false);
 
     if !has_max_length_reached {
-        sqlx::query("ALTER TABLE outcomes ADD COLUMN max_length_reached INTEGER NOT NULL DEFAULT 0")
-            .execute(pool)
-            .await
-            .expect("Failed to add max_length_reached column to outcomes");
+        sqlx::query(
+            "ALTER TABLE outcomes ADD COLUMN max_length_reached INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to add max_length_reached column to outcomes");
         info!("Migrated outcomes table: added 'max_length_reached' column");
     }
 }

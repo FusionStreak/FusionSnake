@@ -156,7 +156,9 @@ pub struct RoyaleSettings {
 impl RoyaleSettings {
     #[must_use]
     pub fn new(shrink_every_nturns: u32) -> Self {
-        Self { shrink_every_nturns }
+        Self {
+            shrink_every_nturns,
+        }
     }
 }
 
