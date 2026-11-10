@@ -30,31 +30,38 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// require authentication.
 pub struct ApiKey;
 
+/// Validate API key authentication for a request.
+///
+/// # Errors
+/// Returns an unauthorized error when API key auth is enabled and the
+/// `X-API-Key` header is missing or invalid.
+pub fn validate_api_key(req: &HttpRequest) -> Result<(), actix_web::Error> {
+    let expected = std::env::var("API_KEY").unwrap_or_default();
+
+    // No key configured → auth is disabled (dev mode)
+    if expected.is_empty() {
+        WARN_NO_KEY.call_once(|| {
+            log::warn!(
+                "API_KEY environment variable is not set — protected endpoints are open. \
+                 Set API_KEY to enable authentication."
+            );
+        });
+        return Ok(());
+    }
+
+    match req.headers().get("X-API-Key") {
+        Some(value) if constant_time_eq(value.as_bytes(), expected.as_bytes()) => Ok(()),
+        _ => Err(actix_web::error::ErrorUnauthorized(
+            serde_json::json!({"error": "Invalid or missing API key"}),
+        )),
+    }
+}
+
 impl FromRequest for ApiKey {
     type Error = actix_web::Error;
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        let expected = std::env::var("API_KEY").unwrap_or_default();
-
-        // No key configured → auth is disabled (dev mode)
-        if expected.is_empty() {
-            WARN_NO_KEY.call_once(|| {
-                log::warn!(
-                    "API_KEY environment variable is not set — protected endpoints are open. \
-                     Set API_KEY to enable authentication."
-                );
-            });
-            return ready(Ok(ApiKey));
-        }
-
-        match req.headers().get("X-API-Key") {
-            Some(value) if constant_time_eq(value.as_bytes(), expected.as_bytes()) => {
-                ready(Ok(ApiKey))
-            }
-            _ => ready(Err(actix_web::error::ErrorUnauthorized(
-                serde_json::json!({"error": "Invalid or missing API key"}),
-            ))),
-        }
+        ready(validate_api_key(req).map(|_| ApiKey))
     }
 }

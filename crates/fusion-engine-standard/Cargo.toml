@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+actix-web = "^4.14"
 fusion-models = { path = "../fusion-models" }
 fusion-core = { path = "../fusion-core" }
 log = "^0.4.33"

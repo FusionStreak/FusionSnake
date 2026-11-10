@@ -1,6 +1,7 @@
 use actix_cors::Cors;
 use actix_web::web::{Data, get, post};
-use actix_web::{App, HttpResponse, HttpServer, guard, middleware, web};
+use actix_web::{App, HttpResponse, HttpServer, middleware, web};
+use futures_util::future::Either;
 use game_objects::GameState;
 use log::{debug, info};
 use serde::Deserialize;
@@ -20,7 +21,10 @@ mod responses;
 mod stats;
 mod training;
 
-use fusion_engine_standard::heuristic_params::HeuristicParams;
+use fusion_engine_standard::{
+    config_api::{StandardConfigApiDoc, configure_standard_config_routes},
+    heuristic_params::HeuristicParams,
+};
 use stats::{ActiveGames, cleanup_stale_games, create_active_games};
 use training::TrainingLogger;
 
@@ -452,12 +456,6 @@ struct HistoryQuery {
     limit: Option<i64>,
 }
 
-#[derive(Deserialize, utoipa::IntoParams)]
-struct ConfigQuery {
-    /// Engine name to read/update config for (default: `standard`).
-    engine: Option<String>,
-}
-
 #[utoipa::path(
     get,
     path = "/stats/history",
@@ -486,105 +484,6 @@ async fn handle_stats_history(
 // Heuristic parameter configuration endpoints
 // ---------------------------------------------------------------------------
 
-#[utoipa::path(
-    get,
-    path = "/config",
-    tag = "Config",
-    params(ConfigQuery),
-    security(("api_key" = [])),
-    responses(
-        (status = 400, description = "Unsupported engine", body = responses::ErrorResponse),
-        (status = 200, description = "Current heuristic parameters", body = HeuristicParams),
-        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
-    )
-)]
-async fn handle_query_config(
-    _key: auth::ApiKey,
-    engines: Data<engine_registry::EngineRegistry>,
-    query: web::Query<ConfigQuery>,
-) -> HttpResponse {
-    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
-        Ok(engine) => engine,
-        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
-    };
-
-    HttpResponse::Ok().json(engines.get_params(engine).await)
-}
-
-#[utoipa::path(
-    post,
-    path = "/config",
-    tag = "Config",
-    params(ConfigQuery),
-    security(("api_key" = [])),
-    request_body = HeuristicParams,
-    responses(
-        (status = 200, description = "Parameters updated successfully"),
-        (status = 400, description = "Validation error or unsupported engine", body = responses::ErrorResponse),
-        (status = 401, description = "Unauthorized", body = responses::ErrorResponse),
-        (status = 500, description = "Disk write failure", body = responses::ErrorResponse)
-    )
-)]
-async fn handle_set_config(
-    _key: auth::ApiKey,
-    engines: Data<engine_registry::EngineRegistry>,
-    query: web::Query<ConfigQuery>,
-    body: web::Json<HeuristicParams>,
-) -> HttpResponse {
-    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
-        Ok(engine) => engine,
-        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
-    };
-    let new_params = body.into_inner();
-
-    if let Err(e) = engines.set_params(engine, new_params).await {
-        let status = if e.starts_with("Validation failed:") {
-            actix_web::http::StatusCode::BAD_REQUEST
-        } else {
-            log::error!("Failed to persist params to disk: {e}");
-            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
-        };
-        return HttpResponse::build(status).json(responses::ErrorResponse { error: e });
-    }
-
-    info!("Heuristic parameters updated via POST /config");
-    HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters updated"}))
-}
-
-#[utoipa::path(
-    post,
-    path = "/config/reset",
-    tag = "Config",
-    params(ConfigQuery),
-    security(("api_key" = [])),
-    responses(
-        (status = 200, description = "Parameters reset to defaults"),
-        (status = 400, description = "Unsupported engine", body = responses::ErrorResponse),
-        (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
-    )
-)]
-async fn handle_reset_config(
-    _key: auth::ApiKey,
-    engines: Data<engine_registry::EngineRegistry>,
-    query: web::Query<ConfigQuery>,
-) -> HttpResponse {
-    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
-        Ok(engine) => engine,
-        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
-    };
-
-    if let Err(e) = engines.reset_params(engine).await {
-        log::error!("Failed to persist params to disk: {e}");
-        return HttpResponse::InternalServerError().json(responses::ErrorResponse {
-            error: format!("Failed to persist defaults to disk: {e}"),
-        });
-    }
-
-    info!("Heuristic parameters reset to defaults via POST /config/reset");
-    HttpResponse::Ok()
-        .json(serde_json::json!({"status": "ok", "message": "Parameters reset to defaults"}))
-}
-
 // ---------------------------------------------------------------------------
 // OpenAPI specification
 // ---------------------------------------------------------------------------
@@ -598,12 +497,6 @@ impl utoipa::Modify for SecurityAddon {
                 "api_key",
                 SecurityScheme::ApiKey(ApiKeyScheme::Header(ApiKeyValue::new("X-API-Key"))),
             );
-        }
-
-        if let Some(path_item) = openapi.paths.paths.get_mut("/config")
-            && path_item.query.is_none()
-        {
-            path_item.query = path_item.get.take();
         }
     }
 }
@@ -627,9 +520,6 @@ impl utoipa::Modify for SecurityAddon {
         handle_training_turns,
         handle_training_outcomes,
         handle_training_summary,
-        handle_query_config,
-        handle_set_config,
-        handle_reset_config,
     ),
     components(schemas(
         responses::InfoResponse,
@@ -667,7 +557,9 @@ impl utoipa::Modify for SecurityAddon {
 struct ApiDoc;
 
 async fn handle_openapi() -> HttpResponse {
-    HttpResponse::Ok().json(ApiDoc::openapi())
+    let mut openapi = ApiDoc::openapi();
+    openapi.merge(StandardConfigApiDoc::openapi());
+    HttpResponse::Ok().json(openapi)
 }
 
 // ---------------------------------------------------------------------------
@@ -701,12 +593,14 @@ async fn main() -> std::io::Result<()> {
         // Configure CORS to allow requests from any origin
         let cors = Cors::default()
             .allow_any_origin()
-            .allowed_methods(vec!["GET", "POST", "QUERY", "OPTIONS"])
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::CONTENT_TYPE,
                 actix_web::http::header::HeaderName::from_static("x-api-key"),
             ])
             .max_age(3600);
+
+        let standard_engine = engines.standard_engine();
 
         App::new()
             .app_data(Data::new(pool.clone()))
@@ -755,14 +649,22 @@ async fn main() -> std::io::Result<()> {
             .route("/training/outcomes", get().to(handle_training_outcomes))
             .route("/training/summary", get().to(handle_training_summary))
             // Config (heuristic params)
-            .route(
-                "/config",
-                web::route()
-                    .guard(guard::fn_guard(|ctx| ctx.head().method.as_str() == "QUERY"))
-                    .to(handle_query_config),
+            .service(
+                web::scope("/config")
+                    .wrap_fn(|req, service| {
+                        if let Err(error) = auth::validate_api_key(req.request()) {
+                            Either::Left(async move { Err(error) })
+                        } else {
+                            Either::Right(service.call(req))
+                        }
+                    })
+                    .configure({
+                        let standard_engine = standard_engine.clone();
+                        move |cfg| {
+                            configure_standard_config_routes(cfg, standard_engine.clone());
+                        }
+                    }),
             )
-            .route("/config", post().to(handle_set_config))
-            .route("/config/reset", post().to(handle_reset_config))
             // OpenAPI spec
             .route("/api-doc/openapi.json", get().to(handle_openapi))
     })

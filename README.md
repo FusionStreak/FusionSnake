@@ -76,9 +76,9 @@ docker compose up -d
 | `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
 | `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data and analytics |
-| `QUERY /config?engine=standard` | API key | Current engine parameters (`engine` optional; defaults to `standard`) |
-| `POST /config?engine=standard` | API key | Update engine parameters (persists to disk) |
-| `POST /config/reset?engine=standard` | API key | Revert engine parameters to defaults |
+| `GET /config/standard` | API key | Current standard-engine parameters |
+| `POST /config/standard` | API key | Update standard-engine parameters (persists to disk) |
+| `POST /config/standard/reset` | API key | Revert standard-engine parameters to defaults |
 | `GET /api-doc/openapi.json` | — | OpenAPI spec |
 
 ## Environment Variables
