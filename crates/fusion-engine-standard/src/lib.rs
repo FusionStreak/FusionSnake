@@ -1,3 +1,4 @@
+pub mod engine;
 pub mod evaluation;
 pub mod heuristic_params;
 pub mod search;

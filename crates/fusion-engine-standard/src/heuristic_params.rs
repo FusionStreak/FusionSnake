@@ -4,13 +4,14 @@
 //! [`crate::logic::get_move`] are collected here so the ML training pipeline
 //! can push optimised values at runtime via `POST /config`.
 //!
-//! On startup the snake tries to load `/data/params.json`; if the file is
+//! On startup the snake tries to load `./data/engines/standard/params.json`
+//! (or `PARAMS_FILE` / `STANDARD_ENGINE_PARAMS_FILE` override). If the file is
 //! missing or corrupt it falls back to [`HeuristicParams::default()`] which
 //! mirrors the original hard-coded values.
 
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use utoipa::ToSchema;
@@ -165,8 +166,69 @@ impl HeuristicParams {
 /// take an exclusive `write()` lock and persist to disk.
 pub type SharedParams = Arc<RwLock<HeuristicParams>>;
 
-/// Default path for the persisted parameters file.
-pub const PARAMS_FILE: &str = "/data/params.json";
+/// Engine-specific default path for persisted standard-engine parameters.
+pub const STANDARD_ENGINE_PARAMS_FILE: &str = "./data/engines/standard/params.json";
+/// Backward-compat alias retained for existing callers.
+pub const PARAMS_FILE: &str = STANDARD_ENGINE_PARAMS_FILE;
+const LEGACY_PARAMS_FILE_CANDIDATES: [&str; 2] = ["./data/params.json", "/data/params.json"];
+
+/// Resolve the params-file path from env vars with backward compatibility.
+///
+/// Lookup order:
+/// 1. `STANDARD_ENGINE_PARAMS_FILE`
+/// 2. `PARAMS_FILE` (legacy global name)
+/// 3. [`STANDARD_ENGINE_PARAMS_FILE`]
+#[must_use]
+pub fn params_file_path() -> String {
+    std::env::var("STANDARD_ENGINE_PARAMS_FILE")
+        .or_else(|_| std::env::var("PARAMS_FILE"))
+        .unwrap_or_else(|_| STANDARD_ENGINE_PARAMS_FILE.to_string())
+}
+
+fn should_attempt_legacy_migration() -> bool {
+    std::env::var("STANDARD_ENGINE_PARAMS_FILE").is_err() && std::env::var("PARAMS_FILE").is_err()
+}
+
+fn migrate_legacy_params_file(target_path: &Path) {
+    if target_path.exists() {
+        return;
+    }
+
+    for legacy in LEGACY_PARAMS_FILE_CANDIDATES {
+        let legacy_path = Path::new(legacy);
+        if legacy_path == target_path || !legacy_path.exists() {
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            warn!(
+                "Cannot create target params directory {} during migration: {e}",
+                parent.display()
+            );
+            return;
+        }
+
+        match std::fs::rename(legacy_path, target_path) {
+            Ok(()) => {
+                info!(
+                    "Migrated standard engine params from {} to {}",
+                    legacy_path.display(),
+                    target_path.display()
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Could not migrate params file {} -> {}: {e}",
+                    legacy_path.display(),
+                    target_path.display()
+                );
+            }
+        }
+        return;
+    }
+}
 
 /// Create the shared parameter store.
 /// Tries to load from `PARAMS_FILE`, falling back to `Default`.
@@ -174,11 +236,16 @@ pub const PARAMS_FILE: &str = "/data/params.json";
 /// the next redeploy without requiring a trainer push first.
 #[must_use]
 pub fn create_shared_params() -> SharedParams {
-    let path = std::env::var("PARAMS_FILE").unwrap_or_else(|_| PARAMS_FILE.to_string());
-    let params = HeuristicParams::load_from_file(Path::new(&path)).unwrap_or_else(|| {
+    let path = params_file_path();
+    let path_buf = PathBuf::from(&path);
+    if should_attempt_legacy_migration() {
+        migrate_legacy_params_file(path_buf.as_path());
+    }
+
+    let params = HeuristicParams::load_from_file(path_buf.as_path()).unwrap_or_else(|| {
         info!("Using default heuristic parameters");
         let defaults = HeuristicParams::default();
-        if let Err(e) = defaults.save_to_file(Path::new(&path)) {
+        if let Err(e) = defaults.save_to_file(path_buf.as_path()) {
             warn!("Could not persist default params to {path}: {e}");
         }
         defaults
