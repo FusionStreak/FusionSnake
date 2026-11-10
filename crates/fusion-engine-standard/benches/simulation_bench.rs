@@ -1,7 +1,7 @@
 mod common;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use fusion_snake::simulation::Direction;
+use fusion_engine_standard::simulation::Direction;
 
 fn bench_apply_moves_duel(c: &mut Criterion) {
     let board = common::duel_7x7();

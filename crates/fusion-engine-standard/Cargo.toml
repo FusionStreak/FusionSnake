@@ -12,3 +12,18 @@ serde = { version = "^1.0.229", features = ["derive"] }
 serde_json = "^1.0.151"
 tokio = { version = "^1", features = ["sync"] }
 utoipa = { version = "6" }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "simulation_bench"
+harness = false
+
+[[bench]]
+name = "evaluation_bench"
+harness = false
+
+[[bench]]
+name = "search_bench"
+harness = false

@@ -1,8 +1,8 @@
 mod common;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fusion_snake::evaluation::evaluate;
-use fusion_snake::simulation::SimSnake;
+use fusion_engine_standard::evaluation::evaluate;
+use fusion_engine_standard::simulation::SimSnake;
 
 fn bench_evaluate_duel(c: &mut Criterion) {
     let board = common::duel_7x7();

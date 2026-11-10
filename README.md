@@ -31,7 +31,7 @@ Battlesnake engine  -->  POST /move  -->  logic::get_move()
 ```txt
 src/
   main.rs              — Actix server, route registration, SecurityHeaders middleware
-  lib.rs               — Public module re-exports for benchmarks
+  lib.rs               — Public module re-exports
   logic.rs             — Decision engine: get_move() returns (MoveResponse, MoveFeatures)
   simulation.rs        — SimBoard: compact cloneable game state for tree search
   evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
@@ -43,7 +43,7 @@ src/
   auth.rs              — X-API-Key header extractor
   responses.rs         — utoipa-annotated response structs for OpenAPI
   stats.rs             — ActiveGames tracking (Arc<Mutex>)
-benches/
+crates/fusion-engine-standard/benches/
   common/mod.rs        — Shared helpers for building test boards
   simulation_bench.rs  — SimBoard::apply_moves() throughput benchmarks
   evaluation_bench.rs  — evaluate() scoring benchmarks

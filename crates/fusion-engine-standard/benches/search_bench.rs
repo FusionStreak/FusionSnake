@@ -3,7 +3,7 @@ mod common;
 use std::time::Instant;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fusion_snake::search::search;
+use fusion_engine_standard::search::search;
 
 fn bench_search_duel_50ms(c: &mut Criterion) {
     let board = common::duel_7x7();
