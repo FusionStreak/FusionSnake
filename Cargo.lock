@@ -828,6 +828,7 @@ dependencies = [
 name = "fusion-core"
 version = "0.1.0"
 dependencies = [
+ "fusion-models",
  "serde",
 ]
 

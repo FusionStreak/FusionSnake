@@ -62,6 +62,6 @@ impl FromRequest for ApiKey {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        ready(validate_api_key(req).map(|_| ApiKey))
+        ready(validate_api_key(req).map(|()| ApiKey))
     }
 }
