@@ -99,10 +99,12 @@ Future engines should be implemented as separate crates under [`crates/`](./crat
 
 ### Required app wiring
 
-1. Add the engine instance to [`EngineRegistry`](./src/engine_registry.rs).
-2. Route game types to the engine in [`select_engine`](./src/engine_registry.rs).
-3. Register config routes in `EngineRegistry::configure_config_routes(...)`.
-4. Merge engine OpenAPI fragments in `EngineRegistry::merge_openapi(...)`.
+1. Add an engine runtime entry in [`EngineRegistry::prime`](./src/engine_registry.rs), including:
+   - move dispatch implementation
+   - supported game-type matcher
+   - config route registration
+   - OpenAPI fragment merge
+2. Keep `/move` and `/config` engine-agnostic in [`main.rs`](./src/main.rs) by relying only on registry methods.
 
 ## Environment Variables
 

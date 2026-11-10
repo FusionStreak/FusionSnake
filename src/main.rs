@@ -551,9 +551,9 @@ impl utoipa::Modify for SecurityAddon {
 )]
 struct ApiDoc;
 
-async fn handle_openapi() -> HttpResponse {
+async fn handle_openapi(engines: Data<engine_registry::EngineRegistry>) -> HttpResponse {
     let mut openapi = ApiDoc::openapi();
-    engine_registry::EngineRegistry::merge_openapi(&mut openapi);
+    engines.merge_openapi(&mut openapi);
     HttpResponse::Ok().json(openapi)
 }
 
