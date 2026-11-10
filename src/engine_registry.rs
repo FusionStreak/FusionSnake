@@ -1,6 +1,8 @@
 use fusion_core::{MoveFeatures, SnakeEngine};
+use fusion_engine_standard::config_api::{StandardConfigApiDoc, configure_standard_config_routes};
 use fusion_engine_standard::engine::StandardEngine;
 use log::info;
+use utoipa::OpenApi;
 
 use crate::game_objects::{Battlesnake, Board, Game, GameType};
 use crate::responses::MoveResponse;
@@ -50,9 +52,12 @@ impl EngineRegistry {
         }
     }
 
-    #[must_use]
-    pub fn standard_engine(&self) -> StandardEngine {
-        self.standard.clone()
+    pub fn configure_config_routes(&self, cfg: &mut actix_web::web::ServiceConfig) {
+        configure_standard_config_routes(cfg, self.standard.clone());
+    }
+
+    pub fn merge_openapi(openapi: &mut utoipa::openapi::OpenApi) {
+        openapi.merge(StandardConfigApiDoc::openapi());
     }
 }
 
