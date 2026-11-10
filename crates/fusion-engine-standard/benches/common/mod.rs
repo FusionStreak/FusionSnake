@@ -1,6 +1,6 @@
-use fusion_snake::game_objects::Coord;
-use fusion_snake::heuristic_params::HeuristicParams;
-use fusion_snake::simulation::{SimBoard, SimSnake};
+use fusion_engine_standard::game_objects::Coord;
+use fusion_engine_standard::heuristic_params::HeuristicParams;
+use fusion_engine_standard::simulation::{SimBoard, SimSnake};
 
 pub fn make_snake(body: &[(i8, i8)], health: i32) -> SimSnake {
     SimSnake {
