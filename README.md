@@ -101,7 +101,8 @@ Future engines should be implemented as separate crates under [`crates/`](./crat
 
 1. Add the engine instance to [`EngineRegistry`](./src/engine_registry.rs).
 2. Route game types to the engine in [`select_engine`](./src/engine_registry.rs).
-3. Mount the engine config routes under the `/config` scope in [`main.rs`](./src/main.rs).
+3. Register config routes in `EngineRegistry::configure_config_routes(...)`.
+4. Merge engine OpenAPI fragments in `EngineRegistry::merge_openapi(...)`.
 
 ## Environment Variables
 
