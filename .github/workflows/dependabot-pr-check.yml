@@ -5,8 +5,10 @@ on:
         branches: [main]
         paths:
             - "Cargo.toml"
+            - "crates/**/Cargo.toml"
             - "Cargo.lock"
             - "src/**"
+            - "crates/**"
             - ".github/workflows/**"
 
 permissions:
@@ -35,4 +37,4 @@ jobs:
               run: cargo test --locked --workspace
 
             - name: Lint with Clippy
-              run: cargo clippy --all-targets --all-features --locked -- -D warnings
+              run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

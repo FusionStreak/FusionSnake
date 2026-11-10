@@ -12,6 +12,7 @@ use utoipa::openapi::security::{ApiKey as ApiKeyScheme, ApiKeyValue, SecuritySch
 
 mod auth;
 mod db;
+mod engine_registry;
 mod evaluation;
 mod game_objects;
 mod heuristic_params;
@@ -263,7 +264,7 @@ async fn handle_move(
     shared_params: Data<SharedParams>,
 ) -> HttpResponse {
     let params = shared_params.read().await;
-    let (response, features) = logic::get_move(
+    let (response, features) = engine_registry::get_move(
         &game_state.game,
         game_state.turn,
         &game_state.board,
@@ -343,7 +344,15 @@ async fn handle_end(
     // Fire-and-forget: write outcome + aggregate stats to SQLite
     training.log_outcome(
         game_state.game.id.clone(),
-        db::OutcomeRecord::new(won, is_draw, turns, food_eaten, source, game_type, max_length_reached),
+        db::OutcomeRecord::new(
+            won,
+            is_draw,
+            turns,
+            food_eaten,
+            source,
+            game_type,
+            max_length_reached,
+        ),
     );
     training.log_game_stats(turns, food_eaten, won, is_draw);
 
