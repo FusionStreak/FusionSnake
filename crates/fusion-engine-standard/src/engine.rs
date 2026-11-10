@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use fusion_core::{EngineMoveDecision, MoveFeatures};
+use fusion_core::{EngineMoveDecision, MoveFeatures, SnakeEngine};
 use log::info;
 
 use crate::game_objects::{Battlesnake, Board, Game};
@@ -15,15 +15,20 @@ pub struct StandardEngine {
     params: SharedParams,
 }
 
-impl StandardEngine {
-    #[must_use]
-    pub fn prime() -> Self {
+impl SnakeEngine for StandardEngine {
+    type Params = HeuristicParams;
+
+    fn prime() -> Self {
         Self {
             params: create_shared_params(),
         }
     }
 
-    pub async fn get_move(
+    fn name(&self) -> &'static str {
+        "standard"
+    }
+
+    async fn get_move(
         &self,
         game: &Game,
         turn: i32,
@@ -34,15 +39,11 @@ impl StandardEngine {
         get_move_with_params(game, turn, board, you, &params)
     }
 
-    pub async fn get_params(&self) -> HeuristicParams {
+    async fn get_params(&self) -> Self::Params {
         self.params.read().await.clone()
     }
 
-    /// Persist and apply new heuristic params for this engine.
-    ///
-    /// # Errors
-    /// Returns `Err` when validation fails or persistence to disk fails.
-    pub async fn set_params(&self, new_params: HeuristicParams) -> Result<(), String> {
+    async fn set_params(&self, new_params: Self::Params) -> Result<(), String> {
         let errors = new_params.validate();
         if !errors.is_empty() {
             return Err(format!("Validation failed: {}", errors.join("; ")));
@@ -56,11 +57,7 @@ impl StandardEngine {
         Ok(())
     }
 
-    /// Reset to defaults and persist them.
-    ///
-    /// # Errors
-    /// Returns `Err` when persisting defaults fails.
-    pub async fn reset_params(&self) -> Result<(), String> {
+    async fn reset_params(&self) -> Result<(), String> {
         let defaults = HeuristicParams::default();
         let path = params_file_path();
         defaults.save_to_file(Path::new(&path))?;

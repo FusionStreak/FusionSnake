@@ -4,7 +4,7 @@ FusionSnake is a [Battlesnake](https://play.battlesnake.com/) AI written in Rust
 
 ## Architecture
 
-```
+```txt
 Battlesnake engine  -->  POST /move  -->  logic::get_move()
                                                |
                                     SimBoard::from_game_state()
@@ -28,7 +28,7 @@ Battlesnake engine  -->  POST /move  -->  logic::get_move()
 
 ## Project Structure
 
-```
+```txt
 src/
   main.rs              — Actix server, route registration, SecurityHeaders middleware
   lib.rs               — Public module re-exports for benchmarks
@@ -71,7 +71,7 @@ docker compose up -d
 ## API Endpoints
 
 | Route | Auth | Description |
-|---|---|---|
+| --- | --- | --- |
 | `GET /` | — | Snake metadata (color, head, tail) |
 | `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
@@ -81,10 +81,32 @@ docker compose up -d
 | `POST /config/standard/reset` | API key | Revert standard-engine parameters to defaults |
 | `GET /api-doc/openapi.json` | — | OpenAPI spec |
 
+## Adding a New Engine
+
+Future engines should be implemented as separate crates under [`crates/`](./crates) and conform to a shared integration contract.
+
+### Required code contract
+
+1. Implement [`SnakeEngine`](./crates/fusion-core/src/lib.rs) for your engine type.
+   - `prime()`: construct/load engine state (params, models, caches, etc.)
+   - `name()`: stable engine identifier (used in route naming/logging)
+   - `get_move(...)`: returns `EngineMoveDecision`
+   - `get_params()/set_params()/reset_params()`: runtime config lifecycle
+2. Expose a config API module in the engine crate with:
+   - `configure_<engine>_config_routes(cfg, engine)` mounting `/config/<engine>`
+   - Endpoint handlers for `GET /config/<engine>`, `POST /config/<engine>`, `POST /config/<engine>/reset`
+3. Expose an engine-specific OpenAPI doc (for example `...ConfigApiDoc`) and merge it in [`handle_openapi`](./src/main.rs).
+
+### Required app wiring
+
+1. Add the engine instance to [`EngineRegistry`](./src/engine_registry.rs).
+2. Route game types to the engine in [`select_engine`](./src/engine_registry.rs).
+3. Mount the engine config routes under the `/config` scope in [`main.rs`](./src/main.rs).
+
 ## Environment Variables
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `PORT` | `6666` | HTTP listen port |
 | `RUST_LOG` | `info` | Log level |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode) |
