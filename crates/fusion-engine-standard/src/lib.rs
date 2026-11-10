@@ -1,3 +1,4 @@
+pub mod config_api;
 pub mod engine;
 pub mod evaluation;
 pub mod heuristic_params;
