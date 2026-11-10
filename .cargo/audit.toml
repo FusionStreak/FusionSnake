@@ -1,0 +1,14 @@
+[advisories]
+ignore = [
+    # Transitive-only advisories currently not directly upgradable from this repository.
+    # Remove each ignore once upstream dependency graph moves to a fixed version.
+    "RUSTSEC-2026-0385", # ctutils
+    "RUSTSEC-2026-0258", # h2
+    "RUSTSEC-2026-0459", # libsqlite3-sys
+]
+
+[yanked]
+# Temporary: this repository currently pulls a yanked transitive crate (chacha20)
+# via upstream dependencies. Re-enable once the dependency graph no longer resolves
+# to yanked crates.
+enabled = false
