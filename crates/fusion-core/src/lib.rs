@@ -1,3 +1,5 @@
+use core::future::Future;
+use fusion_models::{Battlesnake, Board, Game};
 use serde::Serialize;
 
 /// All observable features captured during a single move decision.
@@ -32,4 +34,38 @@ pub struct MoveFeatures {
 pub struct EngineMoveDecision {
     pub chosen_move: &'static str,
     pub features: MoveFeatures,
+}
+
+/// Shared contract every engine must implement to integrate with FusionSnake.
+pub trait SnakeEngine {
+    type Params: Clone + Send + Sync;
+
+    /// Construct and initialize an engine instance with loaded runtime state.
+    fn prime() -> Self
+    where
+        Self: Sized;
+
+    /// Stable engine identifier used in route paths and logs.
+    fn name(&self) -> &'static str;
+
+    /// Compute a move and return training features for this turn.
+    fn get_move<'a>(
+        &'a self,
+        game: &'a Game,
+        turn: i32,
+        board: &'a Board,
+        you: &'a Battlesnake,
+    ) -> impl Future<Output = EngineMoveDecision> + Send + 'a;
+
+    /// Read current engine-specific heuristic/configuration parameters.
+    fn get_params(&self) -> impl Future<Output = Self::Params> + Send;
+
+    /// Validate, persist, and apply engine parameters.
+    fn set_params(
+        &self,
+        new_params: Self::Params,
+    ) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Reset engine parameters to defaults and persist them.
+    fn reset_params(&self) -> impl Future<Output = Result<(), String>> + Send;
 }

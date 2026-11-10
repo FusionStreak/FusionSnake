@@ -1,4 +1,4 @@
-use fusion_core::MoveFeatures;
+use fusion_core::{MoveFeatures, SnakeEngine};
 use fusion_engine_standard::engine::StandardEngine;
 use log::info;
 
@@ -19,7 +19,7 @@ impl EngineRegistry {
     #[must_use]
     pub fn prime() -> Self {
         Self {
-            standard: StandardEngine::prime(),
+            standard: <StandardEngine as SnakeEngine>::prime(),
         }
     }
 
