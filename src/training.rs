@@ -9,9 +9,10 @@
 
 use sqlx::SqlitePool;
 
+use fusion_core::MoveFeatures;
+
 use crate::db;
 use crate::db::OutcomeRecord;
-use crate::logic::MoveFeatures;
 
 /// Cheap-to-clone handle for asynchronously recording training data.
 #[derive(Clone)]
