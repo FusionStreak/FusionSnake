@@ -21,10 +21,6 @@ mod responses;
 mod stats;
 mod training;
 
-use fusion_engine_standard::{
-    config_api::{StandardConfigApiDoc, configure_standard_config_routes},
-    heuristic_params::HeuristicParams,
-};
 use stats::{ActiveGames, cleanup_stale_games, create_active_games};
 use training::TrainingLogger;
 
@@ -534,7 +530,6 @@ impl utoipa::Modify for SecurityAddon {
         responses::PaginatedStatsHistory,
         responses::TrainingAverages,
         responses::TrainingSummary,
-        HeuristicParams,
         game_objects::GameState,
         game_objects::Game,
         game_objects::Ruleset,
@@ -558,7 +553,7 @@ struct ApiDoc;
 
 async fn handle_openapi() -> HttpResponse {
     let mut openapi = ApiDoc::openapi();
-    openapi.merge(StandardConfigApiDoc::openapi());
+    engine_registry::EngineRegistry::merge_openapi(&mut openapi);
     HttpResponse::Ok().json(openapi)
 }
 
@@ -600,7 +595,7 @@ async fn main() -> std::io::Result<()> {
             ])
             .max_age(3600);
 
-        let standard_engine = engines.standard_engine();
+        let config_engines = engines.clone();
 
         App::new()
             .app_data(Data::new(pool.clone()))
@@ -659,9 +654,9 @@ async fn main() -> std::io::Result<()> {
                         }
                     })
                     .configure({
-                        let standard_engine = standard_engine.clone();
+                        let config_engines = config_engines.clone();
                         move |cfg| {
-                            configure_standard_config_routes(cfg, standard_engine.clone());
+                            config_engines.configure_config_routes(cfg);
                         }
                     }),
             )
