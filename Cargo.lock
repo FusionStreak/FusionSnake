@@ -825,6 +825,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fusion-models"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "utoipa",
+]
+
+[[package]]
 name = "fusion-snake"
 version = "0.3.0"
 dependencies = [
@@ -833,6 +841,7 @@ dependencies = [
  "actix-web",
  "chrono",
  "criterion",
+ "fusion-models",
  "futures-util",
  "log",
  "rand",
