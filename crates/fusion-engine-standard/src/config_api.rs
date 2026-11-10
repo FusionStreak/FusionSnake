@@ -1,5 +1,6 @@
 use actix_web::HttpResponse;
 use actix_web::web::{self, Data, Json};
+use fusion_core::SnakeEngine;
 use log::{error, info};
 use utoipa::OpenApi;
 
