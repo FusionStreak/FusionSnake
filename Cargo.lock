@@ -825,6 +825,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fusion-engine-standard"
+version = "0.1.0"
+dependencies = [
+ "fusion-models",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
+ "utoipa",
+]
+
+[[package]]
 name = "fusion-models"
 version = "0.1.0"
 dependencies = [
@@ -841,6 +853,7 @@ dependencies = [
  "actix-web",
  "chrono",
  "criterion",
+ "fusion-engine-standard",
  "fusion-models",
  "futures-util",
  "log",
