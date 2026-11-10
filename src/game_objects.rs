@@ -80,13 +80,6 @@ impl GameType {
             "duel" => Self::Duel,
             "royale" => Self::BattleRoyal,
             "constrictor" => Self::Constrictor,
-            "standard" => {
-                if board.width == 11 && board.height == 11 {
-                    Self::Standard
-                } else {
-                    Self::Unknown
-                }
-            }
             _ => {
                 if board.width == 11 && board.height == 11 {
                     Self::Standard
@@ -120,7 +113,7 @@ impl From<Option<String>> for GameType {
         match val.as_deref() {
             Some("duel") => Self::Duel,
             Some("standard") => Self::Standard,
-            Some("battle_royal") | Some("battle_royale") => Self::BattleRoyal,
+            Some("battle_royal" | "battle_royale") => Self::BattleRoyal,
             Some("constrictor") => Self::Constrictor,
             _ => Self::Unknown,
         }
@@ -153,14 +146,6 @@ pub struct RoyaleSettings {
     pub shrink_every_nturns: u32,
 }
 
-impl RoyaleSettings {
-    #[must_use]
-    pub fn new(shrink_every_nturns: u32) -> Self {
-        Self {
-            shrink_every_nturns,
-        }
-    }
-}
 
 /// Squad settings object
 ///
@@ -198,23 +183,6 @@ pub struct SquadSettings {
     pub shared_health: bool,
     #[serde(rename = "sharedLength")]
     pub shared_length: bool,
-}
-
-impl SquadSettings {
-    #[must_use]
-    pub fn new(
-        allow_body_collisions: bool,
-        shared_elimination: bool,
-        shared_health: bool,
-        shared_length: bool,
-    ) -> Self {
-        Self {
-            allow_body_collisions,
-            shared_elimination,
-            shared_health,
-            shared_length,
-        }
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -268,25 +236,6 @@ pub struct RulesetSettings {
     pub squad: SquadSettings,
 }
 
-impl RulesetSettings {
-    #[must_use]
-    pub fn new(
-        food_spawn_chance: u32,
-        minimum_food: u32,
-        hazard_damage_per_turn: u32,
-        royale: RoyaleSettings,
-        squad: SquadSettings,
-    ) -> Self {
-        Self {
-            food_spawn_chance,
-            minimum_food,
-            hazard_damage_per_turn,
-            royale,
-            squad,
-        }
-    }
-}
-
 /// Ruleset object
 ///
 /// This object contains the name, version, and settings of the ruleset.
@@ -329,17 +278,6 @@ pub struct Ruleset {
     pub name: String,
     pub version: String,
     pub settings: RulesetSettings,
-}
-
-impl Ruleset {
-    #[must_use]
-    pub fn new(name: String, version: String, settings: RulesetSettings) -> Self {
-        Self {
-            name,
-            version,
-            settings,
-        }
-    }
 }
 
 /// Game object
@@ -400,19 +338,6 @@ pub struct Game {
     pub timeout: u32,
     pub map: String,
     pub source: String,
-}
-
-impl Game {
-    #[must_use]
-    pub fn new(id: String, ruleset: Ruleset, timeout: u32, map: String, source: String) -> Self {
-        Self {
-            id,
-            ruleset,
-            timeout,
-            map,
-            source,
-        }
-    }
 }
 
 /// Board object

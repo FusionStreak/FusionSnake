@@ -415,18 +415,42 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct OutcomeRecord {
+    pub won: bool,
+    pub is_draw: bool,
+    pub total_turns: u32,
+    pub total_food_eaten: u32,
+    pub source: GameSource,
+    pub game_type: GameType,
+    pub max_length_reached: u32,
+}
+
+impl OutcomeRecord {
+    #[must_use]
+    pub fn new(
+        won: bool,
+        is_draw: bool,
+        total_turns: u32,
+        total_food_eaten: u32,
+        source: GameSource,
+        game_type: GameType,
+        max_length_reached: u32,
+    ) -> Self {
+        Self {
+            won,
+            is_draw,
+            total_turns,
+            total_food_eaten,
+            source,
+            game_type,
+            max_length_reached,
+        }
+    }
+}
+
 /// Insert a game outcome row.
-pub async fn insert_outcome(
-    pool: &SqlitePool,
-    game_id: &str,
-    won: bool,
-    is_draw: bool,
-    total_turns: u32,
-    total_food_eaten: u32,
-    source: GameSource,
-    game_type: GameType,
-    max_length_reached: u32,
-) {
+pub async fn insert_outcome(pool: &SqlitePool, game_id: &str, outcome: OutcomeRecord) {
     let recorded_at = chrono::Utc::now().to_rfc3339();
 
     if let Err(e) = sqlx::query(
@@ -437,13 +461,13 @@ pub async fn insert_outcome(
         ",
     )
     .bind(game_id)
-    .bind(won)
-    .bind(is_draw)
-    .bind(i64::from(total_turns))
-    .bind(i64::from(total_food_eaten))
-    .bind(source.as_str())
-    .bind(game_type.as_str())
-    .bind(i64::from(max_length_reached))
+    .bind(outcome.won)
+    .bind(outcome.is_draw)
+    .bind(i64::from(outcome.total_turns))
+    .bind(i64::from(outcome.total_food_eaten))
+    .bind(outcome.source.as_str())
+    .bind(outcome.game_type.as_str())
+    .bind(i64::from(outcome.max_length_reached))
     .bind(&recorded_at)
     .execute(pool)
     .await

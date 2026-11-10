@@ -343,13 +343,7 @@ async fn handle_end(
     // Fire-and-forget: write outcome + aggregate stats to SQLite
     training.log_outcome(
         game_state.game.id.clone(),
-        won,
-        is_draw,
-        turns,
-        food_eaten,
-        source,
-        game_type,
-        max_length_reached,
+        db::OutcomeRecord::new(won, is_draw, turns, food_eaten, source, game_type, max_length_reached),
     );
     training.log_game_stats(turns, food_eaten, won, is_draw);
 

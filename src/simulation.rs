@@ -50,17 +50,6 @@ impl Direction {
         }
     }
 
-    /// The opposite direction (moving backwards).
-    #[allow(dead_code)]
-    #[must_use]
-    pub fn opposite(self) -> Direction {
-        match self {
-            Direction::Up => Direction::Down,
-            Direction::Down => Direction::Up,
-            Direction::Left => Direction::Right,
-            Direction::Right => Direction::Left,
-        }
-    }
 }
 
 /// A single snake in the simulation.
@@ -173,13 +162,6 @@ impl SimBoard {
     #[must_use]
     pub fn we_won(&self) -> bool {
         self.snakes[0].alive && self.snakes.iter().filter(|s| s.alive).count() == 1
-    }
-
-    /// Number of alive enemy snakes.
-    #[allow(dead_code)]
-    #[must_use]
-    pub fn alive_enemies(&self) -> usize {
-        self.snakes.iter().skip(1).filter(|s| s.alive).count()
     }
 
     /// Apply one full turn of movement and resolve all game rules.
@@ -456,7 +438,7 @@ mod tests {
         assert_eq!(board.snakes[0].head(), Coord::new(5, 6));
         assert_eq!(board.snakes[0].length(), 4); // grew
         assert_eq!(board.snakes[0].health, 100); // healed
-        assert!(board.food.is_empty()); // food consumed
+        assert_eq!(board.food, Vec::<Coord>::new()); // food consumed
     }
 
     #[test]
