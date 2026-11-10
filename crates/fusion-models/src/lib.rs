@@ -146,7 +146,6 @@ pub struct RoyaleSettings {
     pub shrink_every_nturns: u32,
 }
 
-
 /// Squad settings object
 ///
 /// This object contains the allow body collisions, shared elimination, shared health, and shared length of the squad settings.

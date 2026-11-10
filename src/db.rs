@@ -8,6 +8,7 @@
 //! All writes are async and use WAL journal mode so they never block
 //! the critical move-response path.
 
+use fusion_core::MoveFeatures;
 use log::{error, info, warn};
 use serde::Deserialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
@@ -17,7 +18,6 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::game_objects::{GameSource, GameType};
-use crate::logic::MoveFeatures;
 use crate::responses;
 
 // ---------------------------------------------------------------------------

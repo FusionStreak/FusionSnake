@@ -36,7 +36,7 @@ src/
   simulation.rs        — SimBoard: compact cloneable game state for tree search
   evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
   search.rs            — Iterative-deepening paranoid minimax with alpha-beta pruning
-  heuristic_params.rs  — All tunable scoring constants (loaded from params.json)
+  heuristic_params.rs  — Re-exported standard-engine heuristic params and shared state
   game_objects.rs      — Serde structs matching the Battlesnake API spec
   db.rs                — SQLite schema and async queries
   training.rs          — TrainingLogger: fire-and-forget game data recording
@@ -76,9 +76,9 @@ docker compose up -d
 | `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
 | `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data and analytics |
-| `GET /config` | API key | Current heuristic parameters |
-| `POST /config` | API key | Update parameters (persists to disk) |
-| `POST /config/reset` | API key | Revert to defaults |
+| `QUERY /config?engine=standard` | API key | Current engine parameters (`engine` optional; defaults to `standard`) |
+| `POST /config?engine=standard` | API key | Update engine parameters (persists to disk) |
+| `POST /config/reset?engine=standard` | API key | Revert engine parameters to defaults |
 | `GET /api-doc/openapi.json` | — | OpenAPI spec |
 
 ## Environment Variables
@@ -89,7 +89,8 @@ docker compose up -d
 | `RUST_LOG` | `info` | Log level |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode) |
 | `API_KEY` | _(unset)_ | Protects data and config endpoints |
-| `PARAMS_FILE` | `./data/params.json` | Heuristic params persistence path |
+| `STANDARD_ENGINE_PARAMS_FILE` | `./data/engines/standard/params.json` | Standard-engine heuristic params path |
+| `PARAMS_FILE` | _(legacy override)_ | Backward-compatible alias for standard-engine params path |
 
 ## Linting, Formatting, and Benchmarks
 

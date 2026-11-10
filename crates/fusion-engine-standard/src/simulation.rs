@@ -49,7 +49,6 @@ impl Direction {
             Direction::Right => Coord::new(c.x + 1, c.y),
         }
     }
-
 }
 
 /// A single snake in the simulation.

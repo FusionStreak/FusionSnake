@@ -1,6 +1,6 @@
 use actix_cors::Cors;
 use actix_web::web::{Data, get, post};
-use actix_web::{App, HttpResponse, HttpServer, middleware, web};
+use actix_web::{App, HttpResponse, HttpServer, guard, middleware, web};
 use game_objects::GameState;
 use log::{debug, info};
 use serde::Deserialize;
@@ -15,15 +15,12 @@ mod db;
 mod engine_registry;
 mod evaluation;
 mod game_objects;
-mod heuristic_params;
 mod logic;
 mod responses;
-mod search;
-mod simulation;
 mod stats;
 mod training;
 
-use heuristic_params::{SharedParams, create_shared_params};
+use fusion_engine_standard::heuristic_params::HeuristicParams;
 use stats::{ActiveGames, cleanup_stale_games, create_active_games};
 use training::TrainingLogger;
 
@@ -261,16 +258,16 @@ async fn handle_move(
     game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
     training: Data<TrainingLogger>,
-    shared_params: Data<SharedParams>,
+    engines: Data<engine_registry::EngineRegistry>,
 ) -> HttpResponse {
-    let params = shared_params.read().await;
-    let (response, features) = engine_registry::get_move(
-        &game_state.game,
-        game_state.turn,
-        &game_state.board,
-        &game_state.you,
-        &params,
-    );
+    let (response, features) = engines
+        .get_move(
+            &game_state.game,
+            game_state.turn,
+            &game_state.board,
+            &game_state.you,
+        )
+        .await;
 
     // Fire-and-forget: insert turn features into SQLite in the background
     training.log_turn(game_state.game.id.clone(), features);
@@ -455,6 +452,12 @@ struct HistoryQuery {
     limit: Option<i64>,
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+struct ConfigQuery {
+    /// Engine name to read/update config for (default: `standard`).
+    engine: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/stats/history",
@@ -487,59 +490,62 @@ async fn handle_stats_history(
     get,
     path = "/config",
     tag = "Config",
+    params(ConfigQuery),
     security(("api_key" = [])),
     responses(
-        (status = 200, description = "Current heuristic parameters", body = heuristic_params::HeuristicParams),
+        (status = 400, description = "Unsupported engine", body = responses::ErrorResponse),
+        (status = 200, description = "Current heuristic parameters", body = HeuristicParams),
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
     )
 )]
-async fn handle_get_config(_key: auth::ApiKey, shared_params: Data<SharedParams>) -> HttpResponse {
-    let params = shared_params.read().await;
-    HttpResponse::Ok().json(params.clone())
+async fn handle_query_config(
+    _key: auth::ApiKey,
+    engines: Data<engine_registry::EngineRegistry>,
+    query: web::Query<ConfigQuery>,
+) -> HttpResponse {
+    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
+        Ok(engine) => engine,
+        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
+    };
+
+    HttpResponse::Ok().json(engines.get_params(engine).await)
 }
 
 #[utoipa::path(
     post,
     path = "/config",
     tag = "Config",
+    params(ConfigQuery),
     security(("api_key" = [])),
-    request_body = heuristic_params::HeuristicParams,
+    request_body = HeuristicParams,
     responses(
         (status = 200, description = "Parameters updated successfully"),
-        (status = 400, description = "Validation error", body = responses::ErrorResponse),
+        (status = 400, description = "Validation error or unsupported engine", body = responses::ErrorResponse),
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse),
         (status = 500, description = "Disk write failure", body = responses::ErrorResponse)
     )
 )]
 async fn handle_set_config(
     _key: auth::ApiKey,
-    shared_params: Data<SharedParams>,
-    body: web::Json<heuristic_params::HeuristicParams>,
+    engines: Data<engine_registry::EngineRegistry>,
+    query: web::Query<ConfigQuery>,
+    body: web::Json<HeuristicParams>,
 ) -> HttpResponse {
+    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
+        Ok(engine) => engine,
+        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
+    };
     let new_params = body.into_inner();
 
-    // Validate before applying
-    let errors = new_params.validate();
-    if !errors.is_empty() {
-        return HttpResponse::BadRequest().json(responses::ErrorResponse {
-            error: format!("Validation failed: {}", errors.join("; ")),
-        });
+    if let Err(e) = engines.set_params(engine, new_params).await {
+        let status = if e.starts_with("Validation failed:") {
+            actix_web::http::StatusCode::BAD_REQUEST
+        } else {
+            log::error!("Failed to persist params to disk: {e}");
+            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+        };
+        return HttpResponse::build(status).json(responses::ErrorResponse { error: e });
     }
-
-    // Persist to disk — failure is a hard error so the caller knows params
-    // were not durably saved (in-memory update is NOT applied on disk failure).
-    let path =
-        std::env::var("PARAMS_FILE").unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
-    if let Err(e) = new_params.save_to_file(std::path::Path::new(&path)) {
-        log::error!("Failed to persist params to disk: {e}");
-        return HttpResponse::InternalServerError().json(responses::ErrorResponse {
-            error: format!("Failed to persist params to disk: {e}"),
-        });
-    }
-
-    let mut params = shared_params.write().await;
-    *params = new_params;
-    drop(params);
 
     info!("Heuristic parameters updated via POST /config");
     HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters updated"}))
@@ -549,24 +555,30 @@ async fn handle_set_config(
     post,
     path = "/config/reset",
     tag = "Config",
+    params(ConfigQuery),
     security(("api_key" = [])),
     responses(
         (status = 200, description = "Parameters reset to defaults"),
+        (status = 400, description = "Unsupported engine", body = responses::ErrorResponse),
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
     )
 )]
 async fn handle_reset_config(
     _key: auth::ApiKey,
-    shared_params: Data<SharedParams>,
+    engines: Data<engine_registry::EngineRegistry>,
+    query: web::Query<ConfigQuery>,
 ) -> HttpResponse {
-    let defaults = heuristic_params::HeuristicParams::default();
+    let engine = match engine_registry::resolve_config_engine(query.engine.as_deref()) {
+        Ok(engine) => engine,
+        Err(error) => return HttpResponse::BadRequest().json(responses::ErrorResponse { error }),
+    };
 
-    let path =
-        std::env::var("PARAMS_FILE").unwrap_or_else(|_| heuristic_params::PARAMS_FILE.to_string());
-    let _ = defaults.save_to_file(std::path::Path::new(&path));
-
-    let mut params = shared_params.write().await;
-    *params = defaults;
+    if let Err(e) = engines.reset_params(engine).await {
+        log::error!("Failed to persist params to disk: {e}");
+        return HttpResponse::InternalServerError().json(responses::ErrorResponse {
+            error: format!("Failed to persist defaults to disk: {e}"),
+        });
+    }
 
     info!("Heuristic parameters reset to defaults via POST /config/reset");
     HttpResponse::Ok()
@@ -586,6 +598,12 @@ impl utoipa::Modify for SecurityAddon {
                 "api_key",
                 SecurityScheme::ApiKey(ApiKeyScheme::Header(ApiKeyValue::new("X-API-Key"))),
             );
+        }
+
+        if let Some(path_item) = openapi.paths.paths.get_mut("/config")
+            && path_item.query.is_none()
+        {
+            path_item.query = path_item.get.take();
         }
     }
 }
@@ -609,7 +627,7 @@ impl utoipa::Modify for SecurityAddon {
         handle_training_turns,
         handle_training_outcomes,
         handle_training_summary,
-        handle_get_config,
+        handle_query_config,
         handle_set_config,
         handle_reset_config,
     ),
@@ -626,7 +644,7 @@ impl utoipa::Modify for SecurityAddon {
         responses::PaginatedStatsHistory,
         responses::TrainingAverages,
         responses::TrainingSummary,
-        heuristic_params::HeuristicParams,
+        HeuristicParams,
         game_objects::GameState,
         game_objects::Game,
         game_objects::Ruleset,
@@ -677,13 +695,13 @@ async fn main() -> std::io::Result<()> {
     let pool = db::init().await;
     let active_games = create_active_games();
     let training_logger = TrainingLogger::new(pool.clone());
-    let shared_params = create_shared_params();
+    let engines = engine_registry::EngineRegistry::prime();
 
     HttpServer::new(move || {
         // Configure CORS to allow requests from any origin
         let cors = Cors::default()
             .allow_any_origin()
-            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_methods(vec!["GET", "POST", "QUERY", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::CONTENT_TYPE,
                 actix_web::http::header::HeaderName::from_static("x-api-key"),
@@ -694,7 +712,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(active_games.clone()))
             .app_data(Data::new(training_logger.clone()))
-            .app_data(Data::new(shared_params.clone()))
+            .app_data(Data::new(engines.clone()))
             .app_data(
                 web::JsonConfig::default()
                     .limit(262_144) // 256 KB
@@ -737,7 +755,12 @@ async fn main() -> std::io::Result<()> {
             .route("/training/outcomes", get().to(handle_training_outcomes))
             .route("/training/summary", get().to(handle_training_summary))
             // Config (heuristic params)
-            .route("/config", get().to(handle_get_config))
+            .route(
+                "/config",
+                web::route()
+                    .guard(guard::fn_guard(|ctx| ctx.head().method.as_str() == "QUERY"))
+                    .to(handle_query_config),
+            )
             .route("/config", post().to(handle_set_config))
             .route("/config/reset", post().to(handle_reset_config))
             // OpenAPI spec

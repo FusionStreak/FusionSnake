@@ -27,7 +27,7 @@ Battlesnake engine → POST /move → logic::get_move(&params)
 | `simulation.rs`       | `SimBoard` — compact cloneable game state for tree search, `apply_moves()` with full Battlesnake rule resolution   |
 | `evaluation.rs`       | Static board evaluation: Voronoi area control, health, food proximity, length advantage, aggression bonus          |
 | `search.rs`           | Iterative-deepening paranoid minimax with alpha-beta pruning and time management                                   |
-| `heuristic_params.rs` | All tunable scoring constants (`HeuristicParams`), loads from `/data/params.json`                                  |
+| `heuristic_params.rs` | Standard-engine heuristic params (`HeuristicParams`) loaded from `./data/engines/standard/params.json`              |
 | `game_objects.rs`     | Serde structs matching Battlesnake API spec; fields use `pub(crate)`                                               |
 | `db.rs`               | SQLite schema + async queries (`turns`, `outcomes`, `game_stats` tables)                                           |
 | `training.rs`         | `TrainingLogger` — cheap clone handle, fire-and-forget Tokio spawns for game data recording                        |
@@ -62,7 +62,7 @@ Battlesnake engine → POST /move → logic::get_move(&params)
 
 ## Runtime-Tunable Parameters
 
-All scoring constants live in `HeuristicParams` (`heuristic_params.rs`). On startup the server loads `/data/params.json` (override with `PARAMS_FILE`), falling back to `HeuristicParams::default()`. Stored in `Arc<RwLock<HeuristicParams>>` (aliased as `SharedParams`) and shared via Actix `Data<>`.
+All scoring constants live in `HeuristicParams` (`heuristic_params.rs`). On startup the server loads `./data/engines/standard/params.json` (override with `STANDARD_ENGINE_PARAMS_FILE`, or legacy `PARAMS_FILE`), falling back to `HeuristicParams::default()`. Stored in `Arc<RwLock<HeuristicParams>>` (aliased as `SharedParams`) and shared via Actix `Data<>`.
 
 To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `params.json`. Do **not** hardcode new constants — add them to `HeuristicParams` and its `Default` impl.
 
@@ -74,9 +74,9 @@ To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `
 | `POST /start`, `/move`, `/end`                                   | —       | Battlesnake game lifecycle         |
 | `GET /stats`, `/stats/history`                                   | —       | Aggregate + per-game statistics    |
 | `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data / analytics              |
-| `GET /config`                                                    | API key | Current `HeuristicParams`          |
-| `POST /config`                                                   | API key | Update params (persists to disk)   |
-| `POST /config/reset`                                             | API key | Revert to defaults                 |
+| `QUERY /config?engine=standard`                                  | API key | Current `HeuristicParams`          |
+| `POST /config?engine=standard`                                   | API key | Update params (persists to disk)   |
+| `POST /config/reset?engine=standard`                             | API key | Revert to defaults                 |
 | `GET /api-doc/openapi.json`                                      | —       | OpenAPI spec                       |
 
 ## Environment Variables
@@ -87,7 +87,8 @@ To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `
 | `RUST_LOG`     | `info`                          | Log level (uses `tracing_subscriber` with JSON format) |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode)                                 |
 | `API_KEY`      | _(unset = auth disabled)_       | Protects data/config endpoints                         |
-| `PARAMS_FILE`  | `./data/params.json`            | Heuristic params persistence path                      |
+| `STANDARD_ENGINE_PARAMS_FILE` | `./data/engines/standard/params.json` | Standard-engine heuristic params persistence path      |
+| `PARAMS_FILE`  | _(legacy override)_             | Backward-compatible alias for standard-engine params   |
 
 ## Development Workflows
 
