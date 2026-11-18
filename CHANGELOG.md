@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/FusionStreak/FusionSnake/compare/v0.4.0...v0.5.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* the root /, /start, /move and /end routes and /config/standard are removed. Each engine is now served under /<engine> (e.g. /standard/move, /standard/config); re-register the snake at https://<host>/standard.
+
+### Features
+
+* attribute stats and training data to engines ([ed5be25](https://github.com/FusionStreak/FusionSnake/commit/ed5be25df9ae98648cc9e55f3b7911c2aa22b203))
+* define shared SnakeEngine contract ([1d89e18](https://github.com/FusionStreak/FusionSnake/commit/1d89e188cd14dd15f2e36dc30b61ce7ab39452e7))
+* serve each engine as its own snake under /&lt;engine&gt; ([c653e44](https://github.com/FusionStreak/FusionSnake/commit/c653e4477324036c90da1ec20c7ded5bfe7221a3))
+
+
+### Bug Fixes
+
+* **deps:** bump actix-http to 3.21.3 for security advisories ([68c926e](https://github.com/FusionStreak/FusionSnake/commit/68c926e7d091d5337eb0d7a2c0f957258f338784))
+* **models:** make fusion-models doctests compile ([be7ecd3](https://github.com/FusionStreak/FusionSnake/commit/be7ecd35a0b27074ea85e9cfb8038c79c5c23a75))
+
 ## [0.4.0](https://github.com/FusionStreak/FusionSnake/compare/v0.3.0...v0.4.0) (2026-11-10)
 
 
