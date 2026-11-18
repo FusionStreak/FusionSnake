@@ -303,6 +303,13 @@ impl utoipa::Modify for SecurityAddon {
         license(name = "MIT")
     ),
     paths(
+        engine_routes::handle_info,
+        engine_routes::handle_start,
+        engine_routes::handle_move,
+        engine_routes::handle_end,
+        engine_routes::handle_get_config,
+        engine_routes::handle_set_config,
+        engine_routes::handle_reset_config,
         handle_stats,
         handle_stats_history,
         handle_training_turns,
@@ -335,16 +342,18 @@ impl utoipa::Modify for SecurityAddon {
     )),
     modifiers(&SecurityAddon),
     tags(
-        (name = "Battlesnake API", description = "Core Battlesnake game engine endpoints"),
+        (name = "Battlesnake API", description = "Battlesnake endpoints; each engine is its own snake at /{engine}"),
         (name = "Stats", description = "Game statistics and history"),
         (name = "Training", description = "ML training data endpoints (API key required)"),
-        (name = "Config", description = "Runtime heuristic parameter tuning (API key required)")
+        (name = "Config", description = "Runtime engine parameter tuning at /{engine}/config (API key required)")
     )
 )]
 struct ApiDoc;
 
-async fn handle_openapi() -> HttpResponse {
-    HttpResponse::Ok().json(ApiDoc::openapi())
+async fn handle_openapi(engines: Data<engine_registry::EngineRegistry>) -> HttpResponse {
+    let mut openapi = ApiDoc::openapi();
+    engines.merge_openapi(&mut openapi);
+    HttpResponse::Ok().json(openapi)
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +398,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(active_games.clone()))
             .app_data(Data::new(training_logger.clone()))
+            .app_data(Data::new(engines.clone()))
             .app_data(
                 web::JsonConfig::default()
                     .limit(262_144) // 256 KB
