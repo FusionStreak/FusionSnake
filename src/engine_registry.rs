@@ -2,11 +2,14 @@
 //!
 //! Each engine is primed once at startup and mounted as its own Battlesnake
 //! under `/<engine-name>` (see [`crate::engine_routes`]). To add an engine,
-//! add a field here, prime it in [`EngineRegistry::prime`], and mount it in
-//! [`EngineRegistry::configure`].
+//! add a field here, then include it in [`EngineRegistry::prime`],
+//! [`EngineRegistry::names`], [`EngineRegistry::configure`] and
+//! [`EngineRegistry::merge_openapi`].
 
 use fusion_core::SnakeEngine;
 use fusion_engine_standard::engine::StandardEngine;
+use utoipa::openapi::{OpenApi, RefOr};
+use utoipa::{PartialSchema, ToSchema};
 
 use crate::engine_routes::configure_engine;
 
@@ -42,6 +45,34 @@ impl EngineRegistry {
     pub fn configure(&self, cfg: &mut actix_web::web::ServiceConfig) {
         configure_engine(cfg, self.standard.clone());
     }
+
+    /// Document the registered engine names and each engine's params schema.
+    pub fn merge_openapi(&self, openapi: &mut OpenApi) {
+        add_params_schema::<StandardEngine>(openapi);
+
+        let names = self.names().join(", ");
+        let engine_params = openapi
+            .paths
+            .paths
+            .values_mut()
+            .flat_map(|item| [item.get.as_mut(), item.post.as_mut()])
+            .flatten()
+            .flat_map(|op| op.parameters.iter_mut().flatten());
+        for param in engine_params {
+            if let RefOr::T(param) = param
+                && param.name == "engine"
+            {
+                param.description = Some(format!("Engine name. Registered: {names}"));
+            }
+        }
+    }
+}
+
+fn add_params_schema<E: SnakeEngine>(openapi: &mut OpenApi) {
+    let components = openapi.components.get_or_insert_with(Default::default);
+    let mut schemas = vec![(E::Params::name().into_owned(), E::Params::schema())];
+    E::Params::schemas(&mut schemas);
+    components.schemas.extend(schemas);
 }
 
 fn validate_names(names: &[&'static str]) {

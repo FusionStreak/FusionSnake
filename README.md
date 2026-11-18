@@ -4,8 +4,10 @@ FusionSnake is a [Battlesnake](https://play.battlesnake.com/) AI written in Rust
 
 ## Architecture
 
+Each engine is served as its own Battlesnake under `/<engine>` (currently just `standard`) and registered separately on play.battlesnake.com, e.g. `https://<host>/standard`.
+
 ```txt
-Battlesnake engine  -->  POST /move  -->  logic::get_move()
+Battlesnake engine  -->  POST /standard/move  -->  StandardEngine::get_move()
                                                |
                                     SimBoard::from_game_state()
                                                |
@@ -32,7 +34,10 @@ Battlesnake engine  -->  POST /move  -->  logic::get_move()
 src/
   main.rs              — Actix server, route registration, SecurityHeaders middleware
   lib.rs               — Public module re-exports
-  logic.rs             — Decision engine: get_move() returns (MoveResponse, MoveFeatures)
+  engine_registry.rs   — The engines this server runs; primes and mounts each one
+  engine_routes.rs     — Generic per-engine routes: /<engine>/{start,move,end,config}
+  logged_json.rs       — JSON extractor that logs raw request bodies
+  logic.rs             — Shared game start/end handling (win/draw detection)
   simulation.rs        — SimBoard: compact cloneable game state for tree search
   evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
   search.rs            — Iterative-deepening paranoid minimax with alpha-beta pruning
@@ -72,39 +77,37 @@ docker compose up -d
 
 | Route | Auth | Description |
 | --- | --- | --- |
-| `GET /` | — | Snake metadata (color, head, tail) |
-| `POST /start`, `/move`, `/end` | — | Battlesnake game lifecycle |
+Per-engine routes (`<engine>` is the engine name, e.g. `standard`):
+
+| Route | Auth | Description |
+| --- | --- | --- |
+| `GET /<engine>` | — | Snake metadata (color, head, tail) |
+| `POST /<engine>/start`, `/<engine>/move`, `/<engine>/end` | — | Battlesnake game lifecycle |
+| `GET /<engine>/config` | API key | Current engine parameters |
+| `POST /<engine>/config` | API key | Update engine parameters (persists to disk) |
+| `POST /<engine>/config/reset` | API key | Revert engine parameters to defaults |
+
+Server-wide routes:
+
+| Route | Auth | Description |
+| --- | --- | --- |
 | `GET /stats`, `/stats/history` | — | Aggregate and per-game statistics |
 | `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data and analytics |
-| `GET /config/standard` | API key | Current standard-engine parameters |
-| `POST /config/standard` | API key | Update standard-engine parameters (persists to disk) |
-| `POST /config/standard/reset` | API key | Revert standard-engine parameters to defaults |
 | `GET /api-doc/openapi.json` | — | OpenAPI spec |
+
+Stats and training endpoints accept an optional `?engine=<name>` filter. Without it, `/stats` sums across all engines.
 
 ## Adding a New Engine
 
-Future engines should be implemented as separate crates under [`crates/`](./crates) and conform to a shared integration contract.
+Engines live in their own crates under [`crates/`](./crates). The server handles routing, config endpoints, OpenAPI docs, game tracking, and stats/training logging; an engine only implements [`SnakeEngine`](./crates/fusion-core/src/lib.rs):
 
-### Required code contract
+- `prime()`: construct/load engine state (params, models, caches, etc.)
+- `name()`: stable identifier — the engine's route prefix (`/<name>`) and the `engine` value on its stats and training rows. Must be lowercase `[a-z0-9_-]` and must not be `stats`, `training`, or `api-doc`.
+- `info()`: snake appearance (color, head, tail)
+- `get_move(...)`: returns `EngineMoveDecision`
+- `get_params()/set_params()/reset_params()`: runtime config lifecycle. `Params` must implement `Serialize`, `Deserialize` and `utoipa::ToSchema`.
 
-1. Implement [`SnakeEngine`](./crates/fusion-core/src/lib.rs) for your engine type.
-   - `prime()`: construct/load engine state (params, models, caches, etc.)
-   - `name()`: stable engine identifier (used in route naming/logging)
-   - `get_move(...)`: returns `EngineMoveDecision`
-   - `get_params()/set_params()/reset_params()`: runtime config lifecycle
-2. Expose a config API module in the engine crate with:
-   - `configure_<engine>_config_routes(cfg, engine)` mounting `/config/<engine>`
-   - Endpoint handlers for `GET /config/<engine>`, `POST /config/<engine>`, `POST /config/<engine>/reset`
-3. Expose an engine-specific OpenAPI doc (for example `...ConfigApiDoc`) and merge it in [`handle_openapi`](./src/main.rs).
-
-### Required app wiring
-
-1. Add an engine runtime entry in [`EngineRegistry::prime`](./src/engine_registry.rs), including:
-   - move dispatch implementation
-   - supported game-type matcher
-   - config route registration
-   - OpenAPI fragment merge
-2. Keep `/move` and `/config` engine-agnostic in [`main.rs`](./src/main.rs) by relying only on registry methods.
+Then register it in [`EngineRegistry`](./src/engine_registry.rs): add a field, prime it in `prime()`, list it in `names()`, mount it in `configure()`, and add its params schema in `merge_openapi()`. Finally, register a new snake on play.battlesnake.com pointing at `https://<host>/<name>`.
 
 ## Environment Variables
 

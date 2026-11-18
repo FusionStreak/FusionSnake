@@ -7,7 +7,7 @@ Single Rust service that plays Battlesnake using iterative-deepening paranoid mi
 ### Request Flow
 
 ```
-Battlesnake engine → POST /move → logic::get_move(&params)
+Battlesnake engine → POST /standard/move → StandardEngine::get_move()
                                          ↓
                         SimBoard::from_game_state() → search::search()
                         (iterative deepening minimax with alpha-beta)
@@ -23,7 +23,9 @@ Battlesnake engine → POST /move → logic::get_move(&params)
 | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `main.rs`             | Actix server, all route registrations, `SecurityHeaders` middleware                                                |
 | `lib.rs`              | Public module re-exports for benchmarks (`evaluation`, `game_objects`, `heuristic_params`, `search`, `simulation`) |
-| `logic.rs`            | Decision engine: `get_move()` returns `(MoveResponse, MoveFeatures)`                                               |
+| `engine_registry.rs`  | The engines this server runs; primes and mounts each under `/<engine>`                                              |
+| `engine_routes.rs`    | Generic per-engine routes (`/<engine>/{start,move,end,config}`) and shared game bookkeeping                        |
+| `logic.rs`            | Shared game start/end handling (win/draw detection)                                                                |
 | `simulation.rs`       | `SimBoard` — compact cloneable game state for tree search, `apply_moves()` with full Battlesnake rule resolution   |
 | `evaluation.rs`       | Static board evaluation: Voronoi area control, health, food proximity, length advantage, aggression bonus          |
 | `search.rs`           | Iterative-deepening paranoid minimax with alpha-beta pruning and time management                                   |
@@ -64,20 +66,22 @@ Battlesnake engine → POST /move → logic::get_move(&params)
 
 All scoring constants live in `HeuristicParams` (`heuristic_params.rs`). On startup the server loads `./data/engines/standard/params.json` (override with `STANDARD_ENGINE_PARAMS_FILE`, or legacy `PARAMS_FILE`), falling back to `HeuristicParams::default()`. Stored in `Arc<RwLock<HeuristicParams>>` (aliased as `SharedParams`) and shared via Actix `Data<>`.
 
-To change scoring behavior: call `POST /config` (requires `X-API-Key`) or edit `params.json`. Do **not** hardcode new constants — add them to `HeuristicParams` and its `Default` impl.
+To change scoring behavior: call `POST /standard/config` (requires `X-API-Key`) or edit `params.json`. Do **not** hardcode new constants — add them to `HeuristicParams` and its `Default` impl.
 
 ## API Endpoints
 
 | Route                                                            | Auth    | Description                        |
 | ---------------------------------------------------------------- | ------- | ---------------------------------- |
-| `GET /`                                                          | —       | Snake metadata (color, head, tail) |
-| `POST /start`, `/move`, `/end`                                   | —       | Battlesnake game lifecycle         |
+| `GET /<engine>`                                                  | —       | Snake metadata (color, head, tail) |
+| `POST /<engine>/start`, `/<engine>/move`, `/<engine>/end`        | —       | Battlesnake game lifecycle         |
+| `GET /<engine>/config`                                           | API key | Current engine params              |
+| `POST /<engine>/config`                                          | API key | Update params (persists to disk)   |
+| `POST /<engine>/config/reset`                                    | API key | Revert to defaults                 |
 | `GET /stats`, `/stats/history`                                   | —       | Aggregate + per-game statistics    |
 | `GET /training/turns`, `/training/outcomes`, `/training/summary` | API key | Game data / analytics              |
-| `QUERY /config?engine=standard`                                  | API key | Current `HeuristicParams`          |
-| `POST /config?engine=standard`                                   | API key | Update params (persists to disk)   |
-| `POST /config/reset?engine=standard`                             | API key | Revert to defaults                 |
 | `GET /api-doc/openapi.json`                                      | —       | OpenAPI spec                       |
+
+Each engine is its own snake (`<engine>` = `SnakeEngine::name()`, currently `standard`). Stats and training endpoints take an optional `?engine=` filter.
 
 ## Environment Variables
 

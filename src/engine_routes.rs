@@ -65,7 +65,16 @@ where
 // Battlesnake API
 // ---------------------------------------------------------------------------
 
-async fn handle_info<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
+#[utoipa::path(
+    get,
+    path = "/{engine}",
+    tag = "Battlesnake API",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    responses(
+        (status = 200, description = "Snake metadata and appearance", body = InfoResponse)
+    )
+)]
+pub async fn handle_info<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
     let appearance = engine.info();
     info!("INFO {}", engine.name());
     HttpResponse::Ok().json(InfoResponse {
@@ -78,7 +87,17 @@ async fn handle_info<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse 
     })
 }
 
-async fn handle_start<E: SnakeEngine + 'static>(
+#[utoipa::path(
+    post,
+    path = "/{engine}/start",
+    tag = "Battlesnake API",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    request_body = GameState,
+    responses(
+        (status = 200, description = "Game acknowledged")
+    )
+)]
+pub async fn handle_start<E: SnakeEngine + 'static>(
     req: HttpRequest,
     engine: Data<E>,
     game_state: LoggedJson<GameState>,
@@ -115,7 +134,17 @@ async fn handle_start<E: SnakeEngine + 'static>(
     HttpResponse::Ok().finish()
 }
 
-async fn handle_move<E: SnakeEngine + 'static>(
+#[utoipa::path(
+    post,
+    path = "/{engine}/move",
+    tag = "Battlesnake API",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    request_body = GameState,
+    responses(
+        (status = 200, description = "Chosen move direction", body = MoveResponse)
+    )
+)]
+pub async fn handle_move<E: SnakeEngine + 'static>(
     engine: Data<E>,
     game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
@@ -147,7 +176,17 @@ async fn handle_move<E: SnakeEngine + 'static>(
     })
 }
 
-async fn handle_end<E: SnakeEngine + 'static>(
+#[utoipa::path(
+    post,
+    path = "/{engine}/end",
+    tag = "Battlesnake API",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    request_body = GameState,
+    responses(
+        (status = 200, description = "Game ended")
+    )
+)]
+pub async fn handle_end<E: SnakeEngine + 'static>(
     engine: Data<E>,
     game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
@@ -216,11 +255,36 @@ async fn handle_end<E: SnakeEngine + 'static>(
 // Engine params config
 // ---------------------------------------------------------------------------
 
-async fn handle_get_config<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
+#[utoipa::path(
+    get,
+    path = "/{engine}/config",
+    tag = "Config",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Current engine parameters (schema per engine, e.g. `HeuristicParams` for `standard`)", body = Object),
+        (status = 401, description = "Unauthorized")
+    )
+)]
+pub async fn handle_get_config<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
     HttpResponse::Ok().json(engine.get_params().await)
 }
 
-async fn handle_set_config<E: SnakeEngine + 'static>(
+#[utoipa::path(
+    post,
+    path = "/{engine}/config",
+    tag = "Config",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    request_body(content = Object, description = "Engine parameters (schema per engine, e.g. `HeuristicParams` for `standard`)"),
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Parameters updated"),
+        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Disk write failure", body = ErrorResponse)
+    )
+)]
+pub async fn handle_set_config<E: SnakeEngine + 'static>(
     engine: Data<E>,
     body: Json<E::Params>,
 ) -> HttpResponse {
@@ -239,7 +303,19 @@ async fn handle_set_config<E: SnakeEngine + 'static>(
     HttpResponse::Ok().json(serde_json::json!({"status": "ok", "message": "Parameters updated"}))
 }
 
-async fn handle_reset_config<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
+#[utoipa::path(
+    post,
+    path = "/{engine}/config/reset",
+    tag = "Config",
+    params(("engine" = String, Path, description = "Engine name, e.g. `standard`")),
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Parameters reset to defaults"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Disk write failure", body = ErrorResponse)
+    )
+)]
+pub async fn handle_reset_config<E: SnakeEngine + 'static>(engine: Data<E>) -> HttpResponse {
     let name = engine.name();
     if let Err(e) = engine.reset_params().await {
         error!("Failed to persist {name} engine defaults to disk: {e}");
