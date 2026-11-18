@@ -1,4 +1,8 @@
+# Pinned so CI and local builds use the same compiler and Clippy lints.
+# Bump deliberately: update `channel` here and `rust-version` in Cargo.toml
+# together, then fix any new lints in the same change. The weekly
+# `rust-canary` workflow previews upcoming breakage on latest stable.
 [toolchain]
-channel = "stable"
+channel = "1.100.0"
 components = ["clippy", "rustfmt"]
 profile = "minimal"

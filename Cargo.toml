@@ -6,11 +6,16 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+# Keep in sync with rust-toolchain.toml.
+rust-version = "1.100"
+
 [package]
 authors = ["Sayfullah Eid"]
 name = "fusion-snake"
 version = "0.4.0"
 edition = "2024"
+rust-version.workspace = true
 license = "MIT"
 repository = "https://github.com/FusionStreak/FusionSnake.git"
 readme = "README.md"
