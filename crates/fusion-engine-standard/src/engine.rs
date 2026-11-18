@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use fusion_core::{EngineMoveDecision, MoveFeatures, SnakeEngine};
+use fusion_core::{EngineInfo, EngineMoveDecision, MoveFeatures, SnakeEngine};
 use log::info;
 
 use crate::game_objects::{Battlesnake, Board, Game};
@@ -26,6 +26,14 @@ impl SnakeEngine for StandardEngine {
 
     fn name(&self) -> &'static str {
         "standard"
+    }
+
+    fn info(&self) -> EngineInfo {
+        EngineInfo {
+            color: "#f54a00",
+            head: "pixel-round",
+            tail: "mlh-gene",
+        }
     }
 
     async fn get_move(

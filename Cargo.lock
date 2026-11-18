@@ -830,13 +830,13 @@ version = "0.1.0"
 dependencies = [
  "fusion-models",
  "serde",
+ "utoipa",
 ]
 
 [[package]]
 name = "fusion-engine-standard"
 version = "0.1.0"
 dependencies = [
- "actix-web",
  "criterion",
  "fusion-core",
  "fusion-models",
