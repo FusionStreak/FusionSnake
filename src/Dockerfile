@@ -1,4 +1,5 @@
-FROM rust:1-slim AS builder
+# Keep in sync with rust-toolchain.toml.
+FROM rust:1.100.0-slim AS builder
 
 COPY . /usr/app
 WORKDIR /usr/app

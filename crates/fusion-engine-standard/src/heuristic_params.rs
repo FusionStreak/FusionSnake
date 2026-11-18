@@ -1,8 +1,9 @@
 //! Runtime-tunable heuristic parameters for move evaluation.
 //!
 //! All scoring penalties, bonuses, thresholds, and weight ratios used by
-//! [`crate::logic::get_move`] are collected here so the ML training pipeline
-//! can push optimised values at runtime via `POST /config`.
+//! [`crate::engine::get_move_with_params`] are collected here so the ML
+//! training pipeline can push optimised values at runtime via
+//! `POST /standard/config`.
 //!
 //! On startup the snake tries to load `./data/engines/standard/params.json`
 //! (or `PARAMS_FILE` / `STANDARD_ENGINE_PARAMS_FILE` override). If the file is
@@ -162,7 +163,7 @@ impl HeuristicParams {
 // ---------------------------------------------------------------------------
 
 /// Async-friendly shared handle to the live heuristic parameters.
-/// Readers (`get_move`) take a cheap `read()` lock; writers (`POST /config`)
+/// Readers (`get_move`) take a cheap `read()` lock; writers (`POST /standard/config`)
 /// take an exclusive `write()` lock and persist to disk.
 pub type SharedParams = Arc<RwLock<HeuristicParams>>;
 

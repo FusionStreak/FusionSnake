@@ -24,12 +24,13 @@ Dependency direction: `fusion-snake` → engine crates → `fusion-core` → `fu
 
 ## Commands
 
-Run these before considering work done. CI does **not** lint or test ordinary PRs; it only builds the Docker image.
+Run these before considering work done. They match the `ci.yml` jobs exactly, and `ci-success` (the required check) fails if any of them fail.
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --locked --workspace
+RUSTFLAGS="-D warnings" cargo test --workspace --all-features --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked
 cargo run                                  # server on 0.0.0.0:6666
 cargo bench -p fusion-engine-standard      # after touching search/evaluation/simulation
 ```
@@ -53,7 +54,8 @@ Manual smoke test: run the server with throwaway state, e.g. `DATABASE_URL=sqlit
 
 ## Conventions
 
-- **Lints:** `clippy::pedantic` is enabled workspace-wide and CI-equivalent runs use `-D warnings`. Fix lints rather than suppressing them. If an `#[allow(...)]` is truly needed, scope it to the item and say why in a comment.
+- **Toolchain:** pinned in `rust-toolchain.toml`. Don't change it as a side effect. A bump updates `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and `FROM rust:…` in `src/Dockerfile` together.
+- **Lints:** `clippy::pedantic` is enabled workspace-wide and CI uses `-D warnings` (rustdoc too, so intra-doc links must resolve). Fix lints rather than suppressing them. If an `#[allow(...)]` is truly needed, scope it to the item and say why in a comment.
 - **Integer conversions:** prefer `From`/`TryFrom` and `.cast_signed()`/`.cast_unsigned()`. Use `as` only with a targeted `#[allow(clippy::cast_*)]`.
 - **Coordinates:** `i8`, origin `(0, 0)` bottom-left, `y` increases upward (Battlesnake convention).
 - **Tunable constants:** the `standard` engine's scoring constants live only in `HeuristicParams`. Add a field, give it a `Default` value, and add `validate()` bounds. Don't hard-code new constants in `evaluation.rs` or `search.rs`.
@@ -61,4 +63,5 @@ Manual smoke test: run the server with throwaway state, e.g. `DATABASE_URL=sqlit
 - **SQL:** `sqlx` 0.9 rejects non-literal SQL. Use parameter binding for values. Wrap a dynamic string in `sqlx::AssertSqlSafe` only when it is built purely from compile-time constants.
 - **OpenAPI:** every endpoint needs `#[utoipa::path(...)]` and an entry in `ApiDoc` in `main.rs`, and every response body needs a `ToSchema` struct in `responses.rs`. Engine params schemas are added via `EngineRegistry::merge_openapi()`.
 - **Commits:** `release-please` builds `CHANGELOG.md` and version bumps from commits on `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, …) for anything that lands on `main`, including squash-merge PR titles.
+- **CI:** new check jobs go in `.github/workflows/ci.yml` and must be added to `ci-success`'s `needs`.
 - **Docs:** when you change routes, env vars, the engine contract or the layout, update `README.md`, the affected engine README and this file in the same change.

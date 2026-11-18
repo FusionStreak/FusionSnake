@@ -77,7 +77,7 @@ Contributor and AI-agent conventions (commands, architecture rules, migrations, 
 
 ### Local development
 
-Prerequisites: [Rust](https://www.rust-lang.org/tools/install) 1.92+ (pinned via `rust-toolchain.toml`).
+Prerequisites: [rustup](https://www.rust-lang.org/tools/install). The toolchain is pinned in `rust-toolchain.toml` (currently 1.100.0), and rustup installs it automatically on first build.
 
 ```bash
 cargo run
@@ -143,7 +143,8 @@ These match CI:
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --locked --workspace
+RUSTFLAGS="-D warnings" cargo test --workspace --all-features --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked
 cargo bench --workspace          # Criterion benches live in engine crates
 ```
 
@@ -153,14 +154,15 @@ cargo bench --workspace          # Criterion benches live in engine crates
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
+| `ci.yml` | Every PR, push to `main` | Parallel `fmt`, `clippy`, `test` and `docs` jobs; `ci-success` aggregates them (the required check) |
+| `rust-canary.yml` | Weekly, manual | Clippy + tests on latest stable to preview the next toolchain bump (not required) |
 | `fusionsnake.yml` | Push/PR to `main` touching code | Builds the Docker image; publishes to GHCR on push |
-| `dependabot-pr-check.yml` | Dependabot / `dependencies`-labelled PRs | fmt check, `cargo test`, clippy `-D warnings` |
 | `cargo-audit.yml` | Dependency changes | `cargo audit` (ignores in `.cargo/audit.toml`) |
 | `release-please.yml` | Push to `main` | Release PRs, version bumps and `CHANGELOG.md` from Conventional Commit messages |
 | `release-docker.yml`, `release-check.yml` | Release published | Release image and checks |
 | `benchmarks.yml` | Manual | Criterion benchmarks |
 
-Ordinary PRs are **not** linted or tested in CI, so run the commands above before pushing.
+**Toolchain bumps:** update `channel` in `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and the `FROM rust:…` tag in `src/Dockerfile` together, and fix any new lints in the same PR. A failing `rust-canary` run tells you what's coming.
 
 ```bash
 docker pull ghcr.io/fusionstreak/fusionsnake:latest

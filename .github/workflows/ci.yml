@@ -1,0 +1,114 @@
+name: CI
+
+# Format, lint, test, and doc checks for every PR (Dependabot included) and
+# every push to main. No path filter on purpose: `ci-success` is the required
+# status check, and a path-filtered required check never reports on PRs that
+# don't match, which blocks them from merging.
+
+on:
+    pull_request:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: 0
+
+jobs:
+    fmt:
+        name: Format
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            # Installs the toolchain pinned in rust-toolchain.toml.
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  cache: false
+                  rustflags: ""
+
+            - run: cargo fmt --all -- --check
+
+    clippy:
+        name: Clippy
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  cache: false
+                  rustflags: ""
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  # Only main writes the cache; PRs restore from it. Keeps PR
+                  # branches from evicting each other out of the 10 GB quota.
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
+
+            # --all-targets also type-checks tests and Criterion benches.
+            - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        env:
+            # Fail on compiler warnings in test-only code too.
+            RUSTFLAGS: -D warnings
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  cache: false
+                  rustflags: ""
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
+
+            # Unit, integration, and doc tests across all crates.
+            - run: cargo test --workspace --all-features --locked
+
+    docs:
+        name: Docs
+        runs-on: ubuntu-latest
+        env:
+            # Broken intra-doc links and other rustdoc warnings fail the build.
+            RUSTDOCFLAGS: -D warnings
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  cache: false
+                  rustflags: ""
+
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
+
+            - run: cargo doc --workspace --all-features --no-deps --locked
+
+    # Single required status check for branch protection. Add new jobs to
+    # `needs` here instead of editing the branch protection rules.
+    ci-success:
+        name: CI success
+        if: always()
+        needs: [fmt, clippy, test, docs]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Fail if any required job failed or was cancelled
+              if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+              run: |
+                  echo "Job results: ${{ toJSON(needs) }}"
+                  exit 1
+            - run: echo "All CI checks passed."

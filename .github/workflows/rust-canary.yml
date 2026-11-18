@@ -1,0 +1,41 @@
+name: Rust canary
+
+# Weekly preview of the next toolchain bump: runs Clippy and tests on the
+# latest stable Rust instead of the version pinned in rust-toolchain.toml.
+# Not a required check. A failure here means new lints or breakage will need
+# fixing when the pin is bumped, not that main is broken.
+
+on:
+    schedule:
+        - cron: "0 6 * * 1" # Mondays 06:00 UTC, alongside Dependabot
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: 0
+
+jobs:
+    latest-stable:
+        name: Clippy + test on latest stable
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  toolchain: stable
+                  components: clippy
+                  cache: false
+                  rustflags: ""
+
+            # Make the override win over rust-toolchain.toml for every cargo call.
+            - run: rustup override set stable
+
+            - run: rustc --version
+
+            - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+            - run: cargo test --workspace --all-features --locked
