@@ -1,59 +1,77 @@
 # FusionSnake
 
-FusionSnake is a [Battlesnake](https://play.battlesnake.com/) AI written in Rust (Actix Web). It uses iterative-deepening paranoid minimax search with alpha-beta pruning to choose moves, and records game data to SQLite for analysis.
+FusionSnake is a [Battlesnake](https://play.battlesnake.com/) server written in Rust (Actix Web). One process hosts several **engines**. Each engine is its own snake with its own URL, appearance and stats. The server handles the Battlesnake API, runtime config, and recording every turn and game outcome to SQLite for analysis and ML training.
+
+| Engine | Route | Game modes | Docs |
+| --- | --- | --- | --- |
+| `standard` | `/standard` | Standard, Duels | [`crates/fusion-engine-standard`](./crates/fusion-engine-standard/README.md) |
 
 ## Architecture
 
-Each engine is served as its own Battlesnake under `/<engine>` (currently just `standard`) and registered separately on play.battlesnake.com, e.g. `https://<host>/standard`.
+The server is a router plus shared bookkeeping. Engines are plain library crates that implement the [`SnakeEngine`](./crates/fusion-core/src/lib.rs) trait and know nothing about HTTP or SQLite.
 
 ```txt
-Battlesnake engine  -->  POST /standard/move  -->  StandardEngine::get_move()
-                                               |
-                                    SimBoard::from_game_state()
-                                               |
-                                    search::search() (iterative deepening
-                                      paranoid minimax + alpha-beta)
-                                               |
-                                          MoveResponse
-                                               |
-                                    TrainingLogger  -->  SQLite
+fusion-snake (server binary, src/)
+  ├── fusion-engine-standard   engine: move logic + tunable params
+  │     ├── fusion-core        SnakeEngine trait, MoveFeatures, EngineInfo
+  │     └── fusion-models      Battlesnake API types (serde + utoipa)
+  ├── fusion-core
+  └── fusion-models
 ```
 
-### Decision Algorithm
+At startup [`EngineRegistry`](./src/engine_registry.rs) primes each engine once and mounts it under `/<engine-name>`. Battlesnake picks the engine by URL: each engine is registered on play.battlesnake.com as a separate snake (e.g. `https://<host>/standard`). The server never infers the engine from the game type.
 
-1. **`SimBoard::from_game_state()`** converts the Battlesnake API types into a compact, cloneable board representation.
-2. **`search::search()`** runs iterative-deepening paranoid minimax with alpha-beta pruning:
-   - Starts at depth 1, increases until the time budget is exhausted.
-   - Enemies respond with the move that minimises our evaluation (paranoid assumption, computed independently per enemy — 4×N branching, not 4^N).
-   - Time is checked every 512 nodes; safe deadline is set to 60% of the budget.
-3. **`evaluation::evaluate()`** scores leaf/terminal positions using Voronoi area control, health, food proximity, length advantage, and aggression bonuses.
+```txt
+POST /standard/move
+  │
+  ▼
+engine_routes::handle_move::<StandardEngine>    (src/engine_routes.rs)
+  │
+  ├─▶ StandardEngine::get_move()  ──▶  EngineMoveDecision { chosen_move, features }
+  │
+  ├─▶ ActiveGames[(engine, game_id)]  update last turn / max length   (in memory)
+  ├─▶ TrainingLogger::log_turn()      fire-and-forget  ──▶ SQLite `turns`
+  │
+  ▼
+{"move": "up"}
+```
+
+`/start` begins tracking the game in `ActiveGames`. `/end` works out win/loss/draw (`logic.rs`) and writes the `outcomes` row and the engine's `game_stats` row. Every row is tagged with the engine that played. In-progress games are keyed by `(engine, game_id)`, so two of our engines can play in the same game without clashing.
+
+## Decision Algorithm
+
+Move selection belongs to each engine. The server only:
+
+1. Deserializes the Battlesnake request into `fusion-models` types.
+2. Calls `SnakeEngine::get_move(game, turn, board, you)` on the engine that owns the route.
+3. Returns `chosen_move` to Battlesnake and logs the returned `MoveFeatures` (board state, search depth, eval score, timing) as a training row.
+
+For how an engine actually chooses its move, see its crate. The `standard` engine runs iterative-deepening paranoid minimax with alpha-beta pruning and Voronoi area evaluation: see [`crates/fusion-engine-standard/README.md`](./crates/fusion-engine-standard/README.md).
 
 ## Project Structure
 
 ```txt
-src/
-  main.rs              — Actix server, route registration, SecurityHeaders middleware
-  lib.rs               — Public module re-exports
-  engine_registry.rs   — The engines this server runs; primes and mounts each one
-  engine_routes.rs     — Generic per-engine routes: /<engine>/{start,move,end,config}
-  logged_json.rs       — JSON extractor that logs raw request bodies
-  logic.rs             — Shared game start/end handling (win/draw detection)
-  simulation.rs        — SimBoard: compact cloneable game state for tree search
-  evaluation.rs        — Static board evaluation (Voronoi, health, food, length, aggression)
-  search.rs            — Iterative-deepening paranoid minimax with alpha-beta pruning
-  heuristic_params.rs  — Re-exported standard-engine heuristic params and shared state
-  game_objects.rs      — Serde structs matching the Battlesnake API spec
-  db.rs                — SQLite schema and async queries
-  training.rs          — TrainingLogger: fire-and-forget game data recording
-  auth.rs              — X-API-Key header extractor
-  responses.rs         — utoipa-annotated response structs for OpenAPI
-  stats.rs             — ActiveGames tracking (Arc<Mutex>)
-crates/fusion-engine-standard/benches/
-  common/mod.rs        — Shared helpers for building test boards
-  simulation_bench.rs  — SimBoard::apply_moves() throughput benchmarks
-  evaluation_bench.rs  — evaluate() scoring benchmarks
-  search_bench.rs      — End-to-end search benchmarks at various depths
+src/                          server binary (fusion-snake)
+  main.rs                     Actix app: middleware, stats/training/OpenAPI routes, startup
+  engine_registry.rs          Engines this server runs; primes, validates names, mounts, documents
+  engine_routes.rs            Generic per-engine routes /<engine>/{,start,move,end,config}
+  logic.rs                    Shared game start/end handling (win/draw detection)
+  stats.rs                    ActiveGames: in-memory tracking of in-progress games
+  training.rs                 TrainingLogger: fire-and-forget SQLite writes
+  db.rs                       SQLite schema, migrations, and queries
+  responses.rs                utoipa-annotated response structs
+  auth.rs                     X-API-Key validation (constant-time compare)
+  logged_json.rs              JSON extractor that logs raw request bodies
+  lib.rs, evaluation.rs,      Compatibility re-exports of fusion-models and
+  game_objects.rs               fusion-engine-standard modules
+crates/
+  fusion-core/                SnakeEngine trait and shared engine types
+  fusion-models/              Battlesnake API request/response models
+  fusion-engine-standard/     Standard/Duels engine (search, evaluation, simulation, benches)
+data/                         Runtime state (git-ignored): SQLite DB, engine params
 ```
+
+Contributor and AI-agent conventions (commands, architecture rules, migrations, lint policy) are in [`AGENTS.md`](./AGENTS.md).
 
 ## Running
 
@@ -75,8 +93,6 @@ docker compose up -d
 
 ## API Endpoints
 
-| Route | Auth | Description |
-| --- | --- | --- |
 Per-engine routes (`<engine>` is the engine name, e.g. `standard`):
 
 | Route | Auth | Description |
@@ -99,7 +115,7 @@ Stats and training endpoints accept an optional `?engine=<name>` filter. Without
 
 ## Adding a New Engine
 
-Engines live in their own crates under [`crates/`](./crates). The server handles routing, config endpoints, OpenAPI docs, game tracking, and stats/training logging; an engine only implements [`SnakeEngine`](./crates/fusion-core/src/lib.rs):
+Engines live in their own crates under [`crates/`](./crates), each with its own README. The server handles routing, config endpoints, OpenAPI docs, game tracking, and stats/training logging; an engine only implements [`SnakeEngine`](./crates/fusion-core/src/lib.rs):
 
 - `prime()`: construct/load engine state (params, models, caches, etc.)
 - `name()`: stable identifier — the engine's route prefix (`/<name>`) and the `engine` value on its stats and training rows. Must be lowercase `[a-z0-9_-]` and must not be `stats`, `training`, or `api-doc`.
@@ -116,23 +132,35 @@ Then register it in [`EngineRegistry`](./src/engine_registry.rs): add a field, p
 | `PORT` | `6666` | HTTP listen port |
 | `RUST_LOG` | `info` | Log level |
 | `DATABASE_URL` | `sqlite:./data/fusion_snake.db` | SQLite path (WAL mode) |
-| `API_KEY` | _(unset)_ | Protects data and config endpoints |
-| `STANDARD_ENGINE_PARAMS_FILE` | `./data/engines/standard/params.json` | Standard-engine heuristic params path |
-| `PARAMS_FILE` | _(legacy override)_ | Backward-compatible alias for standard-engine params path |
+| `API_KEY` | _(unset)_ | Protects training and config endpoints. Unset means auth is disabled (dev only) |
 
-## Linting, Formatting, and Benchmarks
+Engines may define their own variables; see each engine's README (e.g. [standard](./crates/fusion-engine-standard/README.md#configuration)).
+
+## Linting, Testing, and Benchmarks
+
+These match CI:
 
 ```bash
-cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo fmt --all
-cargo bench
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --locked --workspace
+cargo bench --workspace          # Criterion benches live in engine crates
 ```
 
 `clippy::pedantic` is enabled as a warning. All new code must pass without suppression.
 
 ## CI and Container Images
 
-GitHub Actions run Clippy on every push and PR to `main`, and build and publish Docker images to GHCR on `main` and on version tags.
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| `fusionsnake.yml` | Push/PR to `main` touching code | Builds the Docker image; publishes to GHCR on push |
+| `dependabot-pr-check.yml` | Dependabot / `dependencies`-labelled PRs | fmt check, `cargo test`, clippy `-D warnings` |
+| `cargo-audit.yml` | Dependency changes | `cargo audit` (ignores in `.cargo/audit.toml`) |
+| `release-please.yml` | Push to `main` | Release PRs, version bumps and `CHANGELOG.md` from Conventional Commit messages |
+| `release-docker.yml`, `release-check.yml` | Release published | Release image and checks |
+| `benchmarks.yml` | Manual | Criterion benchmarks |
+
+Ordinary PRs are **not** linted or tested in CI, so run the commands above before pushing.
 
 ```bash
 docker pull ghcr.io/fusionstreak/fusionsnake:latest
