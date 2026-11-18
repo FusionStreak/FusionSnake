@@ -3,7 +3,10 @@
 //! A single `fusion_snake.db` file stores:
 //! - **`turns`** — one row per move decision (training features)
 //! - **`outcomes`** — one row per completed game (labels for ML)
-//! - **`game_stats`** — a single aggregate row (replaces the old JSON file)
+//! - **`game_stats`** — one aggregate row per engine (replaces the old JSON file)
+//!
+//! Every row is attributed to the engine that played it, so two of our
+//! engines can share a game (same `game_id`) without clobbering each other.
 //!
 //! All writes are async and use WAL journal mode so they never block
 //! the critical move-response path.
@@ -64,6 +67,52 @@ async fn run_migrations(pool: &SqlitePool) {
     migrate_turns_table(pool).await;
     create_supporting_tables(pool).await;
     migrate_outcomes_source_column(pool).await;
+    migrate_outcomes_engine(pool).await;
+    migrate_game_stats_engine(pool).await;
+}
+
+/// Whether `table` currently has a column named `column`.
+async fn has_column(pool: &SqlitePool, table: &str, column: &str) -> bool {
+    sqlx::query_scalar("SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2")
+        .bind(table)
+        .bind(column)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(false)
+}
+
+/// Rebuild `table` with `create_sql`, copying rows across with `copy_sql`.
+///
+/// Used for changes `ALTER TABLE` cannot express (e.g. primary keys). Runs in
+/// a single transaction so a failure leaves the original table untouched.
+///
+/// All arguments are compile-time constants from this module, never user
+/// input, which is what makes the dynamic SQL below safe.
+async fn rebuild_table(
+    pool: &SqlitePool,
+    table: &'static str,
+    create_sql: &'static str,
+    copy_sql: &'static str,
+) {
+    let old = format!("_{table}_old");
+    let mut tx = pool
+        .begin()
+        .await
+        .expect("Failed to begin migration transaction");
+    for sql in [
+        format!("ALTER TABLE {table} RENAME TO {old}"),
+        create_sql.to_string(),
+        copy_sql.replace("{old}", &old),
+        format!("DROP TABLE {old}"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .execute(&mut *tx)
+            .await
+            .unwrap_or_else(|e| panic!("Failed to rebuild {table} table: {e}"));
+    }
+    tx.commit()
+        .await
+        .unwrap_or_else(|e| panic!("Failed to commit {table} table rebuild: {e}"));
 }
 
 /// Migrate the `turns` table from the legacy schema to the current one, or create it fresh.
@@ -89,6 +138,8 @@ async fn migrate_turns_table(pool: &SqlitePool) {
         r"
         CREATE TABLE IF NOT EXISTS turns (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            -- rows predating multi-engine support were all played by 'standard'
+            engine                TEXT    NOT NULL DEFAULT 'standard',
             game_id               TEXT    NOT NULL,
             turn                  INTEGER NOT NULL,
             -- snake
@@ -146,59 +197,118 @@ async fn migrate_turns_table(pool: &SqlitePool) {
         let _ = sqlx::query("DROP TABLE _turns_old").execute(pool).await;
     }
 
-    // Index for the most common query patterns
+    if !has_column(pool, "turns", "engine").await {
+        sqlx::query("ALTER TABLE turns ADD COLUMN engine TEXT NOT NULL DEFAULT 'standard'")
+            .execute(pool)
+            .await
+            .expect("Failed to add engine column to turns");
+        info!("Migrated turns table: added 'engine' column");
+    }
+
+    // Indexes for the most common query patterns
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_turns_game_id ON turns (game_id);")
         .execute(pool)
         .await
         .expect("Failed to create turns index");
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_turns_engine_game_id ON turns (engine, game_id);")
+        .execute(pool)
+        .await
+        .expect("Failed to create turns engine index");
 }
+
+const CREATE_OUTCOMES: &str = r"
+    CREATE TABLE IF NOT EXISTS outcomes (
+        engine          TEXT    NOT NULL,
+        game_id         TEXT    NOT NULL,
+        won             INTEGER NOT NULL,
+        is_draw         INTEGER NOT NULL,
+        total_turns     INTEGER NOT NULL,
+        total_food_eaten INTEGER NOT NULL,
+        source          TEXT,
+        game_type       TEXT,
+        max_length_reached INTEGER NOT NULL DEFAULT 0,
+        recorded_at     TEXT    NOT NULL,
+        PRIMARY KEY (engine, game_id)
+    );
+";
+
+const CREATE_GAME_STATS: &str = r"
+    CREATE TABLE IF NOT EXISTS game_stats (
+        engine           TEXT    PRIMARY KEY,
+        total_games      INTEGER NOT NULL DEFAULT 0,
+        wins             INTEGER NOT NULL DEFAULT 0,
+        losses           INTEGER NOT NULL DEFAULT 0,
+        draws            INTEGER NOT NULL DEFAULT 0,
+        total_turns      INTEGER NOT NULL DEFAULT 0,
+        longest_game     INTEGER NOT NULL DEFAULT 0,
+        shortest_game    INTEGER NOT NULL DEFAULT 2147483647,
+        total_food_eaten INTEGER NOT NULL DEFAULT 0,
+        last_played      TEXT
+    );
+";
 
 /// Create the `outcomes` and `game_stats` tables.
 async fn create_supporting_tables(pool: &SqlitePool) {
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS outcomes (
-            game_id         TEXT    PRIMARY KEY,
-            won             INTEGER NOT NULL,
-            is_draw         INTEGER NOT NULL,
-            total_turns     INTEGER NOT NULL,
-            total_food_eaten INTEGER NOT NULL,
-            source          TEXT,
-            game_type       TEXT,
-            max_length_reached INTEGER NOT NULL DEFAULT 0,
-            recorded_at     TEXT    NOT NULL
-        );
-        ",
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create outcomes table");
-
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS game_stats (
-            id               INTEGER PRIMARY KEY CHECK (id = 1),
-            total_games      INTEGER NOT NULL DEFAULT 0,
-            wins             INTEGER NOT NULL DEFAULT 0,
-            losses           INTEGER NOT NULL DEFAULT 0,
-            draws            INTEGER NOT NULL DEFAULT 0,
-            total_turns      INTEGER NOT NULL DEFAULT 0,
-            longest_game     INTEGER NOT NULL DEFAULT 0,
-            shortest_game    INTEGER NOT NULL DEFAULT 2147483647,
-            total_food_eaten INTEGER NOT NULL DEFAULT 0,
-            last_played      TEXT
-        );
-        ",
-    )
-    .execute(pool)
-    .await
-    .expect("Failed to create game_stats table");
-
-    // Ensure there is always exactly one row in game_stats
-    sqlx::query("INSERT OR IGNORE INTO game_stats (id) VALUES (1);")
+    sqlx::query(CREATE_OUTCOMES)
         .execute(pool)
         .await
-        .expect("Failed to seed game_stats row");
+        .expect("Failed to create outcomes table");
+
+    sqlx::query(CREATE_GAME_STATS)
+        .execute(pool)
+        .await
+        .expect("Failed to create game_stats table");
+}
+
+/// Re-key `outcomes` by `(engine, game_id)` for databases created before
+/// multi-engine support. Existing rows are attributed to `standard`.
+async fn migrate_outcomes_engine(pool: &SqlitePool) {
+    if has_column(pool, "outcomes", "engine").await {
+        return;
+    }
+    rebuild_table(
+        pool,
+        "outcomes",
+        CREATE_OUTCOMES,
+        r"
+        INSERT INTO outcomes (
+            engine, game_id, won, is_draw, total_turns, total_food_eaten,
+            source, game_type, max_length_reached, recorded_at
+        )
+        SELECT
+            'standard', game_id, won, is_draw, total_turns, total_food_eaten,
+            source, game_type, max_length_reached, recorded_at
+        FROM {old}
+        ",
+    )
+    .await;
+    info!("Migrated outcomes table: keyed by (engine, game_id)");
+}
+
+/// Convert the legacy single-row `game_stats` table into one row per engine.
+/// The existing aggregate is attributed to `standard`.
+async fn migrate_game_stats_engine(pool: &SqlitePool) {
+    if has_column(pool, "game_stats", "engine").await {
+        return;
+    }
+    rebuild_table(
+        pool,
+        "game_stats",
+        CREATE_GAME_STATS,
+        r"
+        INSERT INTO game_stats (
+            engine, total_games, wins, losses, draws, total_turns,
+            longest_game, shortest_game, total_food_eaten, last_played
+        )
+        SELECT
+            'standard', total_games, wins, losses, draws, total_turns,
+            longest_game, shortest_game, total_food_eaten, last_played
+        FROM {old}
+        WHERE total_games > 0
+        ",
+    )
+    .await;
+    info!("Migrated game_stats table: one row per engine");
 }
 
 /// Add schema columns to `outcomes` for existing databases.
@@ -283,8 +393,8 @@ async fn migrate_json_stats(pool: &SqlitePool) {
         return; // nothing to migrate
     }
 
-    // Only migrate if the DB row is still pristine (total_games == 0)
-    let total: i64 = sqlx::query_scalar("SELECT total_games FROM game_stats WHERE id = 1")
+    // Only migrate if no games have been recorded yet
+    let total: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(total_games), 0) FROM game_stats")
         .fetch_one(pool)
         .await
         .unwrap_or(0);
@@ -314,17 +424,10 @@ async fn migrate_json_stats(pool: &SqlitePool) {
     // Write into SQLite
     if let Err(e) = sqlx::query(
         r"
-        UPDATE game_stats SET
-            total_games      = ?1,
-            wins             = ?2,
-            losses           = ?3,
-            draws            = ?4,
-            total_turns      = ?5,
-            longest_game     = ?6,
-            shortest_game    = ?7,
-            total_food_eaten = ?8,
-            last_played      = ?9
-        WHERE id = 1
+        INSERT OR REPLACE INTO game_stats (
+            engine, total_games, wins, losses, draws, total_turns,
+            longest_game, shortest_game, total_food_eaten, last_played
+        ) VALUES ('standard', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ",
     )
     .bind(legacy.total_games)
@@ -364,7 +467,7 @@ async fn migrate_json_stats(pool: &SqlitePool) {
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::cast_lossless)]
 #[allow(clippy::cast_possible_wrap)]
-pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
+pub async fn insert_turn(pool: &SqlitePool, engine: &str, game_id: &str, f: &MoveFeatures) {
     let recorded_at = chrono::Utc::now().to_rfc3339();
 
     if let Err(e) = sqlx::query(
@@ -376,7 +479,7 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
             hazard_damage_per_turn,
             max_enemy_length, min_enemy_length, length_advantage,
             chosen_move, search_depth, eval_score, search_time_ms,
-            recorded_at
+            recorded_at, engine
         ) VALUES (
             ?1, ?2,
             ?3, ?4, ?5, ?6,
@@ -384,7 +487,7 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
             ?12,
             ?13, ?14, ?15,
             ?16, ?17, ?18, ?19,
-            ?20
+            ?20, ?21
         )
         ",
     )
@@ -408,6 +511,7 @@ pub async fn insert_turn(pool: &SqlitePool, game_id: &str, f: &MoveFeatures) {
     .bind(f.eval_score)
     .bind(f.search_time_ms as i64)
     .bind(&recorded_at)
+    .bind(engine)
     .execute(pool)
     .await
     {
@@ -450,14 +554,19 @@ impl OutcomeRecord {
 }
 
 /// Insert a game outcome row.
-pub async fn insert_outcome(pool: &SqlitePool, game_id: &str, outcome: OutcomeRecord) {
+pub async fn insert_outcome(
+    pool: &SqlitePool,
+    engine: &str,
+    game_id: &str,
+    outcome: OutcomeRecord,
+) {
     let recorded_at = chrono::Utc::now().to_rfc3339();
 
     if let Err(e) = sqlx::query(
         r"
         INSERT OR REPLACE INTO outcomes
-            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, max_length_reached, recorded_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, max_length_reached, recorded_at, engine)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ",
     )
     .bind(game_id)
@@ -469,6 +578,7 @@ pub async fn insert_outcome(pool: &SqlitePool, game_id: &str, outcome: OutcomeRe
     .bind(outcome.game_type.as_str())
     .bind(i64::from(outcome.max_length_reached))
     .bind(&recorded_at)
+    .bind(engine)
     .execute(pool)
     .await
     {
@@ -480,8 +590,16 @@ pub async fn insert_outcome(pool: &SqlitePool, game_id: &str, outcome: OutcomeRe
 // Aggregate game stats
 // ---------------------------------------------------------------------------
 
-/// Atomically update the single `game_stats` row after a game ends.
-pub async fn record_game(pool: &SqlitePool, turns: u32, food_eaten: u32, won: bool, is_draw: bool) {
+/// Atomically update `engine`'s `game_stats` row after a game ends,
+/// creating it on the engine's first game.
+pub async fn record_game(
+    pool: &SqlitePool,
+    engine: &str,
+    turns: u32,
+    food_eaten: u32,
+    won: bool,
+    is_draw: bool,
+) {
     let now = chrono::Utc::now().to_rfc3339();
 
     let win_inc: i64 = i64::from(won && !is_draw);
@@ -490,17 +608,20 @@ pub async fn record_game(pool: &SqlitePool, turns: u32, food_eaten: u32, won: bo
 
     if let Err(e) = sqlx::query(
         r"
-        UPDATE game_stats SET
+        INSERT INTO game_stats (
+            engine, total_games, wins, losses, draws, total_turns,
+            total_food_eaten, longest_game, shortest_game, last_played
+        ) VALUES (?7, 1, ?1, ?2, ?3, ?4, ?5, ?4, ?4, ?6)
+        ON CONFLICT (engine) DO UPDATE SET
             total_games      = total_games + 1,
-            wins             = wins + ?1,
-            losses           = losses + ?2,
-            draws            = draws + ?3,
-            total_turns      = total_turns + ?4,
-            total_food_eaten = total_food_eaten + ?5,
-            longest_game     = MAX(longest_game, ?4),
-            shortest_game    = MIN(shortest_game, ?4),
-            last_played      = ?6
-        WHERE id = 1
+            wins             = wins + excluded.wins,
+            losses           = losses + excluded.losses,
+            draws            = draws + excluded.draws,
+            total_turns      = total_turns + excluded.total_turns,
+            total_food_eaten = total_food_eaten + excluded.total_food_eaten,
+            longest_game     = MAX(longest_game, excluded.longest_game),
+            shortest_game    = MIN(shortest_game, excluded.shortest_game),
+            last_played      = excluded.last_played
         ",
     )
     .bind(win_inc)
@@ -509,6 +630,7 @@ pub async fn record_game(pool: &SqlitePool, turns: u32, food_eaten: u32, won: bo
     .bind(i64::from(turns))
     .bind(i64::from(food_eaten))
     .bind(&now)
+    .bind(engine)
     .execute(pool)
     .await
     {
@@ -520,16 +642,29 @@ pub async fn record_game(pool: &SqlitePool, turns: u32, food_eaten: u32, won: bo
 // Query helpers (for API endpoints)
 // ---------------------------------------------------------------------------
 
-/// Fetch aggregate stats as a typed struct.
+/// Fetch aggregate stats for one engine, or summed across all engines.
 #[allow(clippy::cast_precision_loss)]
-pub async fn get_stats(pool: &SqlitePool) -> Result<responses::StatsResponse, String> {
+pub async fn get_stats(
+    pool: &SqlitePool,
+    engine: Option<&str>,
+) -> Result<responses::StatsResponse, String> {
     match sqlx::query(
         r"
-        SELECT total_games, wins, losses, draws, total_turns,
-               longest_game, shortest_game, total_food_eaten, last_played
-        FROM game_stats WHERE id = 1
+        SELECT
+            COALESCE(SUM(total_games), 0)       AS total_games,
+            COALESCE(SUM(wins), 0)              AS wins,
+            COALESCE(SUM(losses), 0)            AS losses,
+            COALESCE(SUM(draws), 0)             AS draws,
+            COALESCE(SUM(total_turns), 0)       AS total_turns,
+            COALESCE(MAX(longest_game), 0)      AS longest_game,
+            COALESCE(MIN(shortest_game), 2147483647) AS shortest_game,
+            COALESCE(SUM(total_food_eaten), 0)  AS total_food_eaten,
+            MAX(last_played)                    AS last_played
+        FROM game_stats
+        WHERE ?1 IS NULL OR engine = ?1
         ",
     )
+    .bind(engine)
     .fetch_one(pool)
     .await
     {
@@ -586,37 +721,27 @@ pub async fn get_stats(pool: &SqlitePool) -> Result<responses::StatsResponse, St
     }
 }
 
-/// Paginated turn records, optionally filtered by `game_id`.
+/// Paginated turn records, optionally filtered by `engine` and/or `game_id`.
 pub async fn get_turns(
     pool: &SqlitePool,
+    engine: Option<&str>,
     game_id: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<responses::PaginatedTurns, String> {
-    let result = if let Some(gid) = game_id {
-        sqlx::query(
-            r"
-            SELECT * FROM turns WHERE game_id = ?1
-            ORDER BY id DESC LIMIT ?2 OFFSET ?3
-            ",
-        )
-        .bind(gid)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-    } else {
-        sqlx::query(
-            r"
-            SELECT * FROM turns
-            ORDER BY id DESC LIMIT ?1 OFFSET ?2
-            ",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-    };
+    let result = sqlx::query(
+        r"
+        SELECT * FROM turns
+        WHERE (?1 IS NULL OR engine = ?1) AND (?2 IS NULL OR game_id = ?2)
+        ORDER BY id DESC LIMIT ?3 OFFSET ?4
+        ",
+    )
+    .bind(engine)
+    .bind(game_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await;
 
     match result {
         Ok(rows) => {
@@ -624,6 +749,7 @@ pub async fn get_turns(
                 .iter()
                 .map(|r| responses::TurnRecord {
                     id: r.get("id"),
+                    engine: r.get("engine"),
                     game_id: r.get("game_id"),
                     turn: r.get("turn"),
                     health: r.get("health"),
@@ -659,18 +785,21 @@ pub async fn get_turns(
     }
 }
 
-/// Paginated game outcomes.
+/// Paginated game outcomes, optionally filtered by `engine`.
 pub async fn get_outcomes(
     pool: &SqlitePool,
+    engine: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<responses::PaginatedOutcomes, String> {
     match sqlx::query(
         r"
         SELECT * FROM outcomes
-        ORDER BY recorded_at DESC LIMIT ?1 OFFSET ?2
+        WHERE ?1 IS NULL OR engine = ?1
+        ORDER BY recorded_at DESC LIMIT ?2 OFFSET ?3
         ",
     )
+    .bind(engine)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -680,6 +809,7 @@ pub async fn get_outcomes(
             let records: Vec<responses::OutcomeRecord> = rows
                 .iter()
                 .map(|r| responses::OutcomeRecord {
+                    engine: r.get("engine"),
                     game_id: r.get("game_id"),
                     won: r.get("won"),
                     is_draw: r.get("is_draw"),
@@ -729,7 +859,10 @@ fn row_to_averages(row: &sqlx::sqlite::SqliteRow) -> responses::TrainingAverages
 /// Aggregate summary useful for dashboards and quick ML feature analysis:
 /// average scores per direction, win-correlated averages, etc.
 #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
-pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSummary {
+pub async fn get_training_summary(
+    pool: &SqlitePool,
+    engine: Option<&str>,
+) -> responses::TrainingSummary {
     // Overall averages across all turns
     let overall = sqlx::query(
         r"
@@ -743,8 +876,10 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             AVG(search_time_ms)         AS avg_search_time_ms,
             AVG(length_advantage)       AS avg_length_advantage
         FROM turns
+        WHERE ?1 IS NULL OR engine = ?1
         ",
     )
+    .bind(engine)
     .fetch_one(pool)
     .await;
 
@@ -760,10 +895,11 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             AVG(t.search_time_ms)       AS avg_search_time_ms,
             AVG(t.length_advantage)     AS avg_length_advantage
         FROM turns t
-        JOIN outcomes o ON t.game_id = o.game_id
-        WHERE o.won = 1
+        JOIN outcomes o ON t.engine = o.engine AND t.game_id = o.game_id
+        WHERE o.won = 1 AND (?1 IS NULL OR t.engine = ?1)
         ",
     )
+    .bind(engine)
     .fetch_one(pool)
     .await;
 
@@ -779,10 +915,11 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
             AVG(t.search_time_ms)       AS avg_search_time_ms,
             AVG(t.length_advantage)     AS avg_length_advantage
         FROM turns t
-        JOIN outcomes o ON t.game_id = o.game_id
-        WHERE o.won = 0 AND o.is_draw = 0
+        JOIN outcomes o ON t.engine = o.engine AND t.game_id = o.game_id
+        WHERE o.won = 0 AND o.is_draw = 0 AND (?1 IS NULL OR t.engine = ?1)
         ",
     )
+    .bind(engine)
     .fetch_one(pool)
     .await;
 
@@ -826,11 +963,13 @@ pub async fn get_training_summary(pool: &SqlitePool) -> responses::TrainingSumma
 #[allow(clippy::cast_precision_loss)]
 pub async fn get_stats_history(
     pool: &SqlitePool,
+    engine: Option<&str>,
     limit: i64,
 ) -> Result<responses::PaginatedStatsHistory, String> {
     match sqlx::query(
         r"
         SELECT
+            o.engine,
             o.game_id,
             o.won,
             o.is_draw,
@@ -844,10 +983,12 @@ pub async fn get_stats_history(
             SUM(o.won) OVER (ORDER BY o.recorded_at ROWS UNBOUNDED PRECEDING) AS cumulative_wins,
             COUNT(*)   OVER (ORDER BY o.recorded_at ROWS UNBOUNDED PRECEDING) AS cumulative_games
         FROM outcomes o
+        WHERE ?1 IS NULL OR o.engine = ?1
         ORDER BY o.recorded_at DESC
-        LIMIT ?1
+        LIMIT ?2
         ",
     )
+    .bind(engine)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -864,6 +1005,7 @@ pub async fn get_stats_history(
                         0.0
                     };
                     responses::StatsHistoryRecord {
+                        engine: r.get("engine"),
                         game_id: r.get("game_id"),
                         won: r.get("won"),
                         is_draw: r.get("is_draw"),

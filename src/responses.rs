@@ -12,7 +12,7 @@ use crate::game_objects::{GameSource, GameType};
 // Battlesnake API responses
 // ---------------------------------------------------------------------------
 
-/// Snake metadata returned by `GET /`.
+/// Snake metadata returned by `GET /<engine>`.
 #[derive(Serialize, ToSchema)]
 pub struct InfoResponse {
     /// Battlesnake API version.
@@ -29,7 +29,7 @@ pub struct InfoResponse {
     pub version: &'static str,
 }
 
-/// Move decision returned by `POST /move`.
+/// Move decision returned by `POST /<engine>/move`.
 #[derive(Serialize, ToSchema)]
 pub struct MoveResponse {
     /// The chosen direction: `"up"`, `"down"`, `"left"`, or `"right"`.
@@ -76,6 +76,8 @@ pub struct StatsResponse {
 /// Per-game stats with running cumulative aggregates.
 #[derive(Serialize, ToSchema)]
 pub struct StatsHistoryRecord {
+    /// Engine that played this game.
+    pub engine: String,
     pub game_id: String,
     pub won: bool,
     pub is_draw: bool,
@@ -110,6 +112,8 @@ pub struct PaginatedStatsHistory {
 #[derive(Serialize, ToSchema)]
 pub struct TurnRecord {
     pub id: i64,
+    /// Engine that played this game.
+    pub engine: String,
     pub game_id: String,
     pub turn: i32,
     pub health: i64,
@@ -136,6 +140,8 @@ pub struct TurnRecord {
 /// A completed game's outcome.
 #[derive(Serialize, ToSchema)]
 pub struct OutcomeRecord {
+    /// Engine that played this game.
+    pub engine: String,
     pub game_id: String,
     pub won: bool,
     pub is_draw: bool,

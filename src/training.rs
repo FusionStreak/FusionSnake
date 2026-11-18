@@ -27,26 +27,33 @@ impl TrainingLogger {
     }
 
     /// Fire-and-forget: insert a turn record in the background.
-    pub fn log_turn(&self, game_id: String, features: MoveFeatures) {
+    pub fn log_turn(&self, engine: &'static str, game_id: String, features: MoveFeatures) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            db::insert_turn(&pool, &game_id, &features).await;
+            db::insert_turn(&pool, engine, &game_id, &features).await;
         });
     }
 
     /// Fire-and-forget: insert the game outcome in the background.
-    pub fn log_outcome(&self, game_id: String, outcome: OutcomeRecord) {
+    pub fn log_outcome(&self, engine: &'static str, game_id: String, outcome: OutcomeRecord) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            db::insert_outcome(&pool, &game_id, outcome).await;
+            db::insert_outcome(&pool, engine, &game_id, outcome).await;
         });
     }
 
-    /// Fire-and-forget: update the aggregate `game_stats` row.
-    pub fn log_game_stats(&self, turns: u32, food_eaten: u32, won: bool, is_draw: bool) {
+    /// Fire-and-forget: update the engine's aggregate `game_stats` row.
+    pub fn log_game_stats(
+        &self,
+        engine: &'static str,
+        turns: u32,
+        food_eaten: u32,
+        won: bool,
+        is_draw: bool,
+    ) {
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            db::record_game(&pool, turns, food_eaten, won, is_draw).await;
+            db::record_game(&pool, engine, turns, food_eaten, won, is_draw).await;
         });
     }
 }

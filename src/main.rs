@@ -108,20 +108,28 @@ where
     }
 }
 
-// API and Response Objects
-// See https://docs.battlesnake.com/api
+// ---------------------------------------------------------------------------
+// Stats endpoints
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, utoipa::IntoParams)]
+struct EngineQuery {
+    /// Restrict to one engine (e.g. `standard`). Omit to aggregate all engines.
+    engine: Option<String>,
+}
 
 #[utoipa::path(
     get,
     path = "/stats",
     tag = "Stats",
+    params(EngineQuery),
     responses(
         (status = 200, description = "Aggregate game statistics", body = responses::StatsResponse),
         (status = 500, description = "Database error", body = responses::ErrorResponse)
     )
 )]
-async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
-    match db::get_stats(&pool).await {
+async fn handle_stats(pool: Data<SqlitePool>, query: web::Query<EngineQuery>) -> HttpResponse {
+    match db::get_stats(&pool, query.engine.as_deref()).await {
         Ok(stats) => HttpResponse::Ok().json(stats),
         Err(msg) => {
             HttpResponse::InternalServerError().json(responses::ErrorResponse { error: msg })
@@ -135,6 +143,8 @@ async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
 
 #[derive(Deserialize, utoipa::IntoParams)]
 struct TurnsQuery {
+    /// Filter by engine (e.g. `standard`).
+    engine: Option<String>,
     /// Filter by game ID.
     game_id: Option<String>,
     /// Maximum number of records (default: 100, max: 1000).
@@ -162,7 +172,15 @@ async fn handle_training_turns(
 ) -> HttpResponse {
     let limit = query.limit.unwrap_or(100).min(1000);
     let offset = query.offset.unwrap_or(0);
-    match db::get_turns(&pool, query.game_id.as_deref(), limit, offset).await {
+    match db::get_turns(
+        &pool,
+        query.engine.as_deref(),
+        query.game_id.as_deref(),
+        limit,
+        offset,
+    )
+    .await
+    {
         Ok(data) => HttpResponse::Ok().json(data),
         Err(msg) => {
             HttpResponse::InternalServerError().json(responses::ErrorResponse { error: msg })
@@ -171,7 +189,9 @@ async fn handle_training_turns(
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
-struct PaginationQuery {
+struct OutcomesQuery {
+    /// Filter by engine (e.g. `standard`).
+    engine: Option<String>,
     /// Maximum number of records (default: 100, max: 1000).
     limit: Option<i64>,
     /// Offset for pagination.
@@ -182,7 +202,7 @@ struct PaginationQuery {
     get,
     path = "/training/outcomes",
     tag = "Training",
-    params(PaginationQuery),
+    params(OutcomesQuery),
     security(("api_key" = [])),
     responses(
         (status = 200, description = "Paginated game outcome records", body = responses::PaginatedOutcomes),
@@ -193,11 +213,11 @@ struct PaginationQuery {
 async fn handle_training_outcomes(
     _key: auth::ApiKey,
     pool: Data<SqlitePool>,
-    query: web::Query<PaginationQuery>,
+    query: web::Query<OutcomesQuery>,
 ) -> HttpResponse {
     let limit = query.limit.unwrap_or(100).min(1000);
     let offset = query.offset.unwrap_or(0);
-    match db::get_outcomes(&pool, limit, offset).await {
+    match db::get_outcomes(&pool, query.engine.as_deref(), limit, offset).await {
         Ok(data) => HttpResponse::Ok().json(data),
         Err(msg) => {
             HttpResponse::InternalServerError().json(responses::ErrorResponse { error: msg })
@@ -209,18 +229,25 @@ async fn handle_training_outcomes(
     get,
     path = "/training/summary",
     tag = "Training",
+    params(EngineQuery),
     security(("api_key" = [])),
     responses(
         (status = 200, description = "Aggregate training data summary", body = responses::TrainingSummary),
         (status = 401, description = "Unauthorized", body = responses::ErrorResponse)
     )
 )]
-async fn handle_training_summary(_key: auth::ApiKey, pool: Data<SqlitePool>) -> HttpResponse {
-    HttpResponse::Ok().json(db::get_training_summary(&pool).await)
+async fn handle_training_summary(
+    _key: auth::ApiKey,
+    pool: Data<SqlitePool>,
+    query: web::Query<EngineQuery>,
+) -> HttpResponse {
+    HttpResponse::Ok().json(db::get_training_summary(&pool, query.engine.as_deref()).await)
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
 struct HistoryQuery {
+    /// Filter by engine (e.g. `standard`).
+    engine: Option<String>,
     /// Maximum number of records (default: 100, max: 1000).
     limit: Option<i64>,
 }
@@ -241,7 +268,7 @@ async fn handle_stats_history(
     query: web::Query<HistoryQuery>,
 ) -> HttpResponse {
     let limit = query.limit.unwrap_or(100).min(1000);
-    match db::get_stats_history(&pool, limit).await {
+    match db::get_stats_history(&pool, query.engine.as_deref(), limit).await {
         Ok(data) => HttpResponse::Ok().json(data),
         Err(msg) => {
             HttpResponse::InternalServerError().json(responses::ErrorResponse { error: msg })
