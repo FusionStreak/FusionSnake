@@ -84,7 +84,8 @@ async fn handle_start<E: SnakeEngine + 'static>(
     game_state: LoggedJson<GameState>,
     active_games: Data<ActiveGames>,
 ) -> HttpResponse {
-    logic::start(engine.name(), &game_state.game);
+    let name = engine.name();
+    logic::start(name, &game_state.game);
 
     let source = GameSource::from_user_agent(
         req.headers()
@@ -95,7 +96,7 @@ async fn handle_start<E: SnakeEngine + 'static>(
 
     if let Ok(mut games) = active_games.lock() {
         games.insert(
-            game_state.game.id.clone(),
+            (name, game_state.game.id.clone()),
             stats::ActiveGame {
                 last_turn: 0,
                 started_at: chrono::Utc::now(),
@@ -129,11 +130,13 @@ async fn handle_move<E: SnakeEngine + 'static>(
         )
         .await;
 
+    let key = (engine.name(), game_state.game.id.clone());
+
     // Fire-and-forget: insert turn features into SQLite in the background
-    training.log_turn(game_state.game.id.clone(), decision.features);
+    training.log_turn(key.0, key.1.clone(), decision.features);
 
     if let Ok(mut games) = active_games.lock()
-        && let Some(game) = games.get_mut(&game_state.game.id)
+        && let Some(game) = games.get_mut(&key)
     {
         game.last_turn = game_state.turn.cast_unsigned();
         game.max_length_reached = game.max_length_reached.max(game_state.you.length);
@@ -150,8 +153,9 @@ async fn handle_end<E: SnakeEngine + 'static>(
     active_games: Data<ActiveGames>,
     training: Data<TrainingLogger>,
 ) -> HttpResponse {
+    let name = engine.name();
     let (won, is_draw) = logic::end(
-        engine.name(),
+        name,
         &game_state.game,
         game_state.turn,
         &game_state.board,
@@ -159,9 +163,12 @@ async fn handle_end<E: SnakeEngine + 'static>(
     );
 
     let tracked = if let Ok(mut games) = active_games.lock() {
-        let tracked = games.remove(&game_state.game.id);
+        let tracked = games.remove(&(name, game_state.game.id.clone()));
         if tracked.is_none() {
-            log::warn!("Game {} not found in active games", game_state.game.id);
+            log::warn!(
+                "Game {} (engine={name}) not found in active games",
+                game_state.game.id
+            );
         }
         tracked
     } else {
@@ -188,6 +195,7 @@ async fn handle_end<E: SnakeEngine + 'static>(
 
     // Fire-and-forget: write outcome + aggregate stats to SQLite
     training.log_outcome(
+        name,
         game_state.game.id.clone(),
         db::OutcomeRecord::new(
             won,
@@ -199,7 +207,7 @@ async fn handle_end<E: SnakeEngine + 'static>(
             max_length_reached,
         ),
     );
-    training.log_game_stats(turns, food_eaten, won, is_draw);
+    training.log_game_stats(name, turns, food_eaten, won, is_draw);
 
     HttpResponse::Ok().finish()
 }

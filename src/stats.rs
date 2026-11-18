@@ -27,8 +27,14 @@ pub struct ActiveGame {
     pub game_type: GameType,
 }
 
+/// Identifies one of our snakes in one game: `(engine name, game id)`.
+///
+/// Keyed by engine as well as game so two of our engines playing in the
+/// same game are tracked independently.
+pub type ActiveGameKey = (&'static str, String);
+
 /// Type alias for shared active games state.
-pub type ActiveGames = Arc<Mutex<HashMap<String, ActiveGame>>>;
+pub type ActiveGames = Arc<Mutex<HashMap<ActiveGameKey, ActiveGame>>>;
 
 /// Create a new shared active games tracker.
 pub fn create_active_games() -> ActiveGames {
@@ -42,12 +48,11 @@ pub fn cleanup_stale_games(active_games: &ActiveGames, max_age_seconds: i64) {
         let now = chrono::Utc::now();
         let initial_count = games.len();
 
-        games.retain(|game_id, game| {
+        games.retain(|(engine, game_id), game| {
             let age = now.signed_duration_since(game.started_at);
             if age.num_seconds() > max_age_seconds {
                 warn!(
-                    "Cleaning up stale game {} (age: {} seconds)",
-                    game_id,
+                    "Cleaning up stale game {game_id} (engine={engine}, age: {} seconds)",
                     age.num_seconds()
                 );
                 false
