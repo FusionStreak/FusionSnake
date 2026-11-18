@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 serde = { version = "^1.0.229", features = ["derive"] }
 fusion-models = { path = "../fusion-models" }
+utoipa = { version = "6" }

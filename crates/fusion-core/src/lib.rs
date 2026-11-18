@@ -1,6 +1,8 @@
 use core::future::Future;
 use fusion_models::{Battlesnake, Board, Game};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
+use utoipa::ToSchema;
 
 /// All observable features captured during a single move decision.
 /// Returned alongside the chosen move so callers can log it for ML training.
@@ -36,17 +38,29 @@ pub struct EngineMoveDecision {
     pub features: MoveFeatures,
 }
 
+/// Snake appearance reported on an engine's Battlesnake info endpoint.
+#[derive(Debug, Clone, Copy)]
+pub struct EngineInfo {
+    pub color: &'static str,
+    pub head: &'static str,
+    pub tail: &'static str,
+}
+
 /// Shared contract every engine must implement to integrate with FusionSnake.
 pub trait SnakeEngine {
-    type Params: Clone + Send + Sync;
+    type Params: Clone + Send + Sync + Serialize + DeserializeOwned + ToSchema + 'static;
 
     /// Construct and initialize an engine instance with loaded runtime state.
     fn prime() -> Self
     where
         Self: Sized;
 
-    /// Stable engine identifier used in route paths and logs.
+    /// Stable engine identifier. Used as the engine's route prefix
+    /// (`/<name>/move`), in logs, and to attribute stats and training data.
     fn name(&self) -> &'static str;
+
+    /// Snake appearance for this engine's Battlesnake info endpoint.
+    fn info(&self) -> EngineInfo;
 
     /// Compute a move and return training features for this turn.
     fn get_move<'a>(

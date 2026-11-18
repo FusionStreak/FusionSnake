@@ -1,8 +1,6 @@
 use actix_cors::Cors;
-use actix_web::web::{Data, get, post};
+use actix_web::web::{Data, get};
 use actix_web::{App, HttpResponse, HttpServer, middleware, web};
-use futures_util::future::Either;
-use game_objects::GameState;
 use log::{debug, info};
 use serde::Deserialize;
 use sqlx::SqlitePool;
@@ -14,68 +12,17 @@ use utoipa::openapi::security::{ApiKey as ApiKeyScheme, ApiKeyValue, SecuritySch
 mod auth;
 mod db;
 mod engine_registry;
+mod engine_routes;
 mod evaluation;
 mod game_objects;
+mod logged_json;
 mod logic;
 mod responses;
 mod stats;
 mod training;
 
-use stats::{ActiveGames, cleanup_stale_games, create_active_games};
+use stats::create_active_games;
 use training::TrainingLogger;
-
-// ---------------------------------------------------------------------------
-// LoggedJson extractor — logs the raw request body for every game endpoint.
-// At DEBUG level: always logs the path + byte count + raw payload.
-// At WARN level:  logs the full payload when JSON deserialization fails.
-// ---------------------------------------------------------------------------
-
-struct LoggedJson<T>(T);
-
-impl<T> std::ops::Deref for LoggedJson<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> actix_web::FromRequest for LoggedJson<T>
-where
-    T: serde::de::DeserializeOwned + 'static,
-{
-    type Error = actix_web::Error;
-    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
-
-    fn from_request(
-        req: &actix_web::HttpRequest,
-        payload: &mut actix_web::dev::Payload,
-    ) -> Self::Future {
-        let path = req.path().to_owned();
-        let bytes_fut = actix_web::web::Bytes::from_request(req, payload);
-        Box::pin(async move {
-            let bytes = bytes_fut.await.map_err(|e| {
-                log::warn!("Failed to read request body: {e}");
-                actix_web::error::ErrorBadRequest(e)
-            })?;
-
-            debug!(
-                "Incoming payload on {path} ({} bytes): {}",
-                bytes.len(),
-                String::from_utf8_lossy(&bytes)
-            );
-
-            serde_json::from_slice::<T>(&bytes)
-                .map(LoggedJson)
-                .map_err(|e| {
-                    log::warn!(
-                        "Failed to deserialize JSON on {path}: {e}\nPayload: {}",
-                        String::from_utf8_lossy(&bytes)
-                    );
-                    actix_web::error::ErrorBadRequest(format!("Invalid JSON: {e}"))
-                })
-        })
-    }
-}
 
 // Middleware to add security headers to every response
 use actix_web::Error;
@@ -166,18 +113,6 @@ where
 
 #[utoipa::path(
     get,
-    path = "/",
-    tag = "Battlesnake API",
-    responses(
-        (status = 200, description = "Snake metadata and appearance", body = responses::InfoResponse)
-    )
-)]
-async fn handle_index() -> HttpResponse {
-    HttpResponse::Ok().json(logic::info())
-}
-
-#[utoipa::path(
-    get,
     path = "/stats",
     tag = "Stats",
     responses(
@@ -192,168 +127,6 @@ async fn handle_stats(pool: Data<SqlitePool>) -> HttpResponse {
             HttpResponse::InternalServerError().json(responses::ErrorResponse { error: msg })
         }
     }
-}
-
-#[utoipa::path(
-    post,
-    path = "/start",
-    tag = "Battlesnake API",
-    request_body = GameState,
-    responses(
-        (status = 200, description = "Game acknowledged")
-    )
-)]
-async fn handle_start(
-    req: actix_web::HttpRequest,
-    game_state: LoggedJson<GameState>,
-    active_games: Data<ActiveGames>,
-) -> HttpResponse {
-    logic::start(
-        &game_state.game,
-        game_state.turn,
-        &game_state.board,
-        &game_state.you,
-    );
-
-    let source = game_objects::GameSource::from_user_agent(
-        req.headers()
-            .get(actix_web::http::header::USER_AGENT)
-            .and_then(|v| v.to_str().ok()),
-    );
-
-    // Track this new game
-    let game_type = game_objects::GameType::from_game_state(&game_state.game, &game_state.board);
-
-    if let Ok(mut games) = active_games.lock() {
-        games.insert(
-            game_state.game.id.clone(),
-            stats::ActiveGame {
-                last_turn: 0,
-                started_at: chrono::Utc::now(),
-                starting_length: game_state.you.length,
-                max_length_reached: game_state.you.length,
-                source,
-                game_type,
-            },
-        );
-
-        // Cleanup stale games (older than 6 hours)
-        drop(games); // Release the lock before cleanup
-        cleanup_stale_games(&active_games, 6 * 60 * 60);
-    }
-
-    HttpResponse::Ok().finish()
-}
-
-#[utoipa::path(
-    post,
-    path = "/move",
-    tag = "Battlesnake API",
-    request_body = GameState,
-    responses(
-        (status = 200, description = "Chosen move direction", body = responses::MoveResponse)
-    )
-)]
-async fn handle_move(
-    game_state: LoggedJson<GameState>,
-    active_games: Data<ActiveGames>,
-    training: Data<TrainingLogger>,
-    engines: Data<engine_registry::EngineRegistry>,
-) -> HttpResponse {
-    let (response, features) = engines
-        .get_move(
-            &game_state.game,
-            game_state.turn,
-            &game_state.board,
-            &game_state.you,
-        )
-        .await;
-
-    // Fire-and-forget: insert turn features into SQLite in the background
-    training.log_turn(game_state.game.id.clone(), features);
-
-    // Update the last turn for this game
-    if let Ok(mut games) = active_games.lock()
-        && let Some(game) = games.get_mut(&game_state.game.id)
-    {
-        game.last_turn = game_state.turn.cast_unsigned();
-        game.max_length_reached = game.max_length_reached.max(game_state.you.length);
-    }
-
-    HttpResponse::Ok().json(response)
-}
-
-#[utoipa::path(
-    post,
-    path = "/end",
-    tag = "Battlesnake API",
-    request_body = GameState,
-    responses(
-        (status = 200, description = "Game ended")
-    )
-)]
-async fn handle_end(
-    game_state: LoggedJson<GameState>,
-    active_games: Data<ActiveGames>,
-    training: Data<TrainingLogger>,
-) -> HttpResponse {
-    let (won, is_draw) = logic::end(
-        &game_state.game,
-        game_state.turn,
-        &game_state.board,
-        &game_state.you,
-    );
-
-    // Get the accurate turn count, food eaten, source, and game type
-    let (turns, food_eaten, source, game_type, max_length_reached) =
-        if let Ok(mut games) = active_games.lock() {
-            if let Some(game) = games.remove(&game_state.game.id) {
-                let turns = game.last_turn;
-                let food_eaten = game_state.you.length.saturating_sub(game.starting_length);
-                (
-                    turns,
-                    food_eaten,
-                    game.source,
-                    game.game_type,
-                    game.max_length_reached,
-                )
-            } else {
-                log::warn!("Game {} not found in active games", game_state.game.id);
-                (
-                    game_state.turn.cast_unsigned(),
-                    0,
-                    game_objects::GameSource::Unknown,
-                    game_objects::GameType::from_game_state(&game_state.game, &game_state.board),
-                    game_state.you.length,
-                )
-            }
-        } else {
-            log::error!("Failed to acquire active games lock");
-            (
-                game_state.turn.cast_unsigned(),
-                0,
-                game_objects::GameSource::Unknown,
-                game_objects::GameType::from_game_state(&game_state.game, &game_state.board),
-                game_state.you.length,
-            )
-        };
-
-    // Fire-and-forget: write outcome + aggregate stats to SQLite
-    training.log_outcome(
-        game_state.game.id.clone(),
-        db::OutcomeRecord::new(
-            won,
-            is_draw,
-            turns,
-            food_eaten,
-            source,
-            game_type,
-            max_length_reached,
-        ),
-    );
-    training.log_game_stats(turns, food_eaten, won, is_draw);
-
-    HttpResponse::Ok().finish()
 }
 
 // ---------------------------------------------------------------------------
@@ -477,10 +250,6 @@ async fn handle_stats_history(
 }
 
 // ---------------------------------------------------------------------------
-// Heuristic parameter configuration endpoints
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // OpenAPI specification
 // ---------------------------------------------------------------------------
 
@@ -507,10 +276,6 @@ impl utoipa::Modify for SecurityAddon {
         license(name = "MIT")
     ),
     paths(
-        handle_index,
-        handle_start,
-        handle_move,
-        handle_end,
         handle_stats,
         handle_stats_history,
         handle_training_turns,
@@ -551,10 +316,8 @@ impl utoipa::Modify for SecurityAddon {
 )]
 struct ApiDoc;
 
-async fn handle_openapi(engines: Data<engine_registry::EngineRegistry>) -> HttpResponse {
-    let mut openapi = ApiDoc::openapi();
-    engines.merge_openapi(&mut openapi);
-    HttpResponse::Ok().json(openapi)
+async fn handle_openapi() -> HttpResponse {
+    HttpResponse::Ok().json(ApiDoc::openapi())
 }
 
 // ---------------------------------------------------------------------------
@@ -595,13 +358,10 @@ async fn main() -> std::io::Result<()> {
             ])
             .max_age(3600);
 
-        let config_engines = engines.clone();
-
         App::new()
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(active_games.clone()))
             .app_data(Data::new(training_logger.clone()))
-            .app_data(Data::new(engines.clone()))
             .app_data(
                 web::JsonConfig::default()
                     .limit(262_144) // 256 KB
@@ -632,34 +392,14 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .wrap(middleware::Logger::default())
             .wrap(SecurityHeaders)
-            // Battlesnake API
-            .route("/", get().to(handle_index))
-            .route("/start", post().to(handle_start))
-            .route("/move", post().to(handle_move))
-            .route("/end", post().to(handle_end))
+            // Battlesnake API + config, one scope per engine: /<engine>/...
+            .configure(|cfg| engines.configure(cfg))
             // Stats & training data
             .route("/stats", get().to(handle_stats))
             .route("/stats/history", get().to(handle_stats_history))
             .route("/training/turns", get().to(handle_training_turns))
             .route("/training/outcomes", get().to(handle_training_outcomes))
             .route("/training/summary", get().to(handle_training_summary))
-            // Config (heuristic params)
-            .service(
-                web::scope("/config")
-                    .wrap_fn(|req, service| {
-                        if let Err(error) = auth::validate_api_key(req.request()) {
-                            Either::Left(async move { Err(error) })
-                        } else {
-                            Either::Right(service.call(req))
-                        }
-                    })
-                    .configure({
-                        let config_engines = config_engines.clone();
-                        move |cfg| {
-                            config_engines.configure_config_routes(cfg);
-                        }
-                    }),
-            )
             // OpenAPI spec
             .route("/api-doc/openapi.json", get().to(handle_openapi))
     })

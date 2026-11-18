@@ -1,134 +1,94 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+//! The set of engines served by this process.
+//!
+//! Each engine is primed once at startup and mounted as its own Battlesnake
+//! under `/<engine-name>` (see [`crate::engine_routes`]). To add an engine,
+//! add a field here, prime it in [`EngineRegistry::prime`], and mount it in
+//! [`EngineRegistry::configure`].
 
-use fusion_core::{MoveFeatures, SnakeEngine};
-use fusion_engine_standard::config_api::{StandardConfigApiDoc, configure_standard_config_routes};
+use fusion_core::SnakeEngine;
 use fusion_engine_standard::engine::StandardEngine;
-use log::info;
-use utoipa::OpenApi;
 
-use crate::game_objects::{Battlesnake, Board, Game, GameType};
-use crate::responses::MoveResponse;
+use crate::engine_routes::configure_engine;
 
-type EngineMoveFuture<'a> = Pin<Box<dyn Future<Output = (MoveResponse, MoveFeatures)> + Send + 'a>>;
-
-trait EngineRuntime: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn supports_game_type(&self, game_type: GameType) -> bool;
-    fn get_move<'a>(
-        &'a self,
-        game: &'a Game,
-        turn: i32,
-        board: &'a Board,
-        you: &'a Battlesnake,
-    ) -> EngineMoveFuture<'a>;
-    fn configure_config_routes(&self, cfg: &mut actix_web::web::ServiceConfig);
-    fn merge_openapi(&self, openapi: &mut utoipa::openapi::OpenApi);
-}
-
-#[derive(Clone)]
-struct StandardRuntime {
-    engine: StandardEngine,
-}
-
-impl StandardRuntime {
-    #[must_use]
-    fn prime() -> Self {
-        Self {
-            engine: <StandardEngine as SnakeEngine>::prime(),
-        }
-    }
-}
-
-impl EngineRuntime for StandardRuntime {
-    fn name(&self) -> &'static str {
-        self.engine.name()
-    }
-
-    fn supports_game_type(&self, game_type: GameType) -> bool {
-        matches!(game_type, GameType::Duel | GameType::Standard)
-    }
-
-    fn get_move<'a>(
-        &'a self,
-        game: &'a Game,
-        turn: i32,
-        board: &'a Board,
-        you: &'a Battlesnake,
-    ) -> EngineMoveFuture<'a> {
-        Box::pin(async move {
-            let decision = self.engine.get_move(game, turn, board, you).await;
-            (
-                MoveResponse {
-                    chosen_move: decision.chosen_move,
-                },
-                decision.features,
-            )
-        })
-    }
-
-    fn configure_config_routes(&self, cfg: &mut actix_web::web::ServiceConfig) {
-        configure_standard_config_routes(cfg, self.engine.clone());
-    }
-
-    fn merge_openapi(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        openapi.merge(StandardConfigApiDoc::openapi());
-    }
-}
+/// Top-level path segments owned by the server; engines may not use them.
+const RESERVED_NAMES: &[&str] = &["stats", "training", "api-doc"];
 
 #[derive(Clone)]
 pub struct EngineRegistry {
-    engines: Vec<Arc<dyn EngineRuntime>>,
+    standard: StandardEngine,
 }
 
 impl EngineRegistry {
+    /// Prime every engine and validate their route names.
+    ///
+    /// # Panics
+    /// Panics if an engine name is not a valid, unique route segment.
     #[must_use]
     pub fn prime() -> Self {
-        let standard = Arc::new(StandardRuntime::prime()) as Arc<dyn EngineRuntime>;
-        Self {
-            engines: vec![standard],
-        }
+        let registry = Self {
+            standard: <StandardEngine as SnakeEngine>::prime(),
+        };
+        validate_names(&registry.names());
+        registry
     }
 
-    pub async fn get_move(
-        &self,
-        game: &Game,
-        turn: i32,
-        board: &Board,
-        you: &Battlesnake,
-    ) -> (MoveResponse, MoveFeatures) {
-        let game_type = GameType::from_game_state(game, board);
-        let default_engine = self
-            .engines
-            .first()
-            .expect("EngineRegistry must contain at least one engine");
-        let selected_engine = self
-            .engines
-            .iter()
-            .find(|engine| engine.supports_game_type(game_type))
-            .unwrap_or(default_engine);
-
-        if !selected_engine.supports_game_type(game_type) {
-            info!(
-                "No dedicated engine registered for game_type={}, using {} engine",
-                game_type.as_str(),
-                selected_engine.name()
-            );
-        }
-
-        selected_engine.get_move(game, turn, board, you).await
+    /// Names of all registered engines, in mount order.
+    #[must_use]
+    pub fn names(&self) -> Vec<&'static str> {
+        vec![self.standard.name()]
     }
 
-    pub fn configure_config_routes(&self, cfg: &mut actix_web::web::ServiceConfig) {
-        for engine in &self.engines {
-            engine.configure_config_routes(cfg);
-        }
+    /// Mount every engine's routes.
+    pub fn configure(&self, cfg: &mut actix_web::web::ServiceConfig) {
+        configure_engine(cfg, self.standard.clone());
+    }
+}
+
+fn validate_names(names: &[&'static str]) {
+    for (i, name) in names.iter().enumerate() {
+        assert!(
+            !name.is_empty()
+                && name.bytes().all(|b| b.is_ascii_lowercase()
+                    || b.is_ascii_digit()
+                    || b == b'-'
+                    || b == b'_'),
+            "Engine name {name:?} must be a non-empty lowercase route segment ([a-z0-9_-])"
+        );
+        assert!(
+            !RESERVED_NAMES.contains(name),
+            "Engine name {name:?} collides with a reserved server route"
+        );
+        assert!(
+            !names[..i].contains(name),
+            "Engine name {name:?} is registered more than once"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_names;
+
+    #[test]
+    fn accepts_valid_unique_names() {
+        validate_names(&["standard", "solo-v2", "duel_exp"]);
     }
 
-    pub fn merge_openapi(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        for engine in &self.engines {
-            engine.merge_openapi(openapi);
-        }
+    #[test]
+    #[should_panic(expected = "reserved")]
+    fn rejects_reserved_names() {
+        validate_names(&["stats"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "more than once")]
+    fn rejects_duplicate_names() {
+        validate_names(&["standard", "standard"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "route segment")]
+    fn rejects_non_route_safe_names() {
+        validate_names(&["Standard/Exp"]);
     }
 }
