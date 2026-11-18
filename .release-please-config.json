@@ -3,6 +3,7 @@
   "packages": {
     ".": {
       "release-type": "rust",
+      "bump-minor-pre-major": true,
       "package-name": "fusion-snake",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
