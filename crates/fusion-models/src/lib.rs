@@ -133,7 +133,7 @@ impl From<Option<String>> for GameType {
 /// # Examples
 ///
 /// ```
-/// use fusion_snake::game_objects::RoyaleSettings;
+/// use fusion_models::RoyaleSettings;
 ///
 /// let royale_settings = RoyaleSettings {
 ///    shrink_every_nturns: 10,
@@ -161,7 +161,7 @@ pub struct RoyaleSettings {
 ///
 /// # Examples
 /// ```
-/// use fusion_snake::game_objects::SquadSettings;
+/// use fusion_models::SquadSettings;
 ///
 /// let squad_settings = SquadSettings {
 ///     allow_body_collisions: true,
@@ -203,7 +203,7 @@ pub struct SquadSettings {
 /// # Examples
 ///
 /// ```
-/// use fusion_snake::game_objects::{RoyaleSettings, RulesetSettings, SquadSettings};
+/// use fusion_models::{RoyaleSettings, RulesetSettings, SquadSettings};
 ///
 /// let royale_settings = RoyaleSettings {
 ///     shrink_every_nturns: 10,
@@ -250,7 +250,7 @@ pub struct RulesetSettings {
 /// # Examples
 ///
 /// ```
-/// use fusion_snake::game_objects::{Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
+/// use fusion_models::{Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
 ///
 /// let ruleset_settings = RulesetSettings {
 ///     food_spawn_chance: 15,
@@ -303,7 +303,7 @@ pub struct Ruleset {
 /// ```
 /// use std::collections::HashMap;
 /// use serde_json::Value;
-/// use fusion_snake::game_objects::{Game, Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
+/// use fusion_models::{Game, Ruleset, RulesetSettings, RoyaleSettings, SquadSettings};
 ///
 /// let ruleset = Ruleset {
 ///     name: "standard".to_string(),
