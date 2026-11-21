@@ -153,6 +153,10 @@ pub struct OutcomeRecord {
     pub game_type: GameType,
     /// Maximum snake length reached in the game.
     pub max_length_reached: i64,
+    /// Hash of the engine params live when the game ended. `null` for older games.
+    pub params_hash: Option<String>,
+    /// Server version that played the game. `null` for older games.
+    pub engine_version: Option<String>,
     /// RFC 3339 timestamp.
     pub recorded_at: String,
 }

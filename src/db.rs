@@ -69,6 +69,26 @@ async fn run_migrations(pool: &SqlitePool) {
     migrate_outcomes_source_column(pool).await;
     migrate_outcomes_engine(pool).await;
     migrate_game_stats_engine(pool).await;
+    migrate_outcomes_attribution(pool).await;
+}
+
+/// Add nullable columns recording which params and build played each game.
+/// Rows from before this migration keep `NULL`, meaning "not recorded".
+async fn migrate_outcomes_attribution(pool: &SqlitePool) {
+    if !has_column(pool, "outcomes", "params_hash").await {
+        sqlx::query("ALTER TABLE outcomes ADD COLUMN params_hash TEXT")
+            .execute(pool)
+            .await
+            .expect("Failed to add params_hash column to outcomes");
+        info!("Migrated outcomes table: added 'params_hash' column");
+    }
+    if !has_column(pool, "outcomes", "engine_version").await {
+        sqlx::query("ALTER TABLE outcomes ADD COLUMN engine_version TEXT")
+            .execute(pool)
+            .await
+            .expect("Failed to add engine_version column to outcomes");
+        info!("Migrated outcomes table: added 'engine_version' column");
+    }
 }
 
 /// Whether `table` currently has a column named `column`.
@@ -528,6 +548,10 @@ pub struct OutcomeRecord {
     pub source: GameSource,
     pub game_type: GameType,
     pub max_length_reached: u32,
+    /// Hash of the engine params live when the game ended.
+    pub params_hash: Option<u64>,
+    /// Server version that played the game.
+    pub engine_version: Option<&'static str>,
 }
 
 impl OutcomeRecord {
@@ -549,7 +573,17 @@ impl OutcomeRecord {
             source,
             game_type,
             max_length_reached,
+            params_hash: None,
+            engine_version: None,
         }
+    }
+
+    /// Records which params and server version played this game.
+    #[must_use]
+    pub fn attributed_to(mut self, params_hash: Option<u64>, version: &'static str) -> Self {
+        self.params_hash = params_hash;
+        self.engine_version = Some(version);
+        self
     }
 }
 
@@ -565,8 +599,8 @@ pub async fn insert_outcome(
     if let Err(e) = sqlx::query(
         r"
         INSERT OR REPLACE INTO outcomes
-            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, max_length_reached, recorded_at, engine)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            (game_id, won, is_draw, total_turns, total_food_eaten, source, game_type, max_length_reached, recorded_at, engine, params_hash, engine_version)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ",
     )
     .bind(game_id)
@@ -579,6 +613,8 @@ pub async fn insert_outcome(
     .bind(i64::from(outcome.max_length_reached))
     .bind(&recorded_at)
     .bind(engine)
+    .bind(outcome.params_hash.map(|hash| format!("{hash:016x}")))
+    .bind(outcome.engine_version)
     .execute(pool)
     .await
     {
@@ -824,6 +860,8 @@ pub async fn get_outcomes(
                         .unwrap_or(None)
                         .into(),
                     max_length_reached: r.try_get("max_length_reached").unwrap_or(0),
+                    params_hash: r.try_get("params_hash").unwrap_or(None),
+                    engine_version: r.try_get("engine_version").unwrap_or(None),
                     recorded_at: r.get("recorded_at"),
                 })
                 .collect();
@@ -1037,5 +1075,69 @@ pub async fn get_stats_history(
             error!("Failed to query stats history: {e}");
             Err("Failed to query stats history".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn memory_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory database")
+    }
+
+    fn outcome() -> OutcomeRecord {
+        OutcomeRecord::new(
+            true,
+            false,
+            120,
+            6,
+            GameSource::Unknown,
+            GameType::Unknown,
+            9,
+        )
+    }
+
+    #[actix_web::test]
+    async fn attribution_migration_keeps_rows_and_is_idempotent() {
+        let pool = memory_pool().await;
+        sqlx::query(CREATE_OUTCOMES).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO outcomes (engine, game_id, won, is_draw, total_turns, \
+             total_food_eaten, recorded_at) VALUES ('standard', 'old', 1, 0, 50, 2, 'then')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        migrate_outcomes_attribution(&pool).await;
+        migrate_outcomes_attribution(&pool).await;
+
+        let rows = get_outcomes(&pool, Some("standard"), 10, 0).await.unwrap();
+        assert_eq!(rows.count, 1);
+        assert_eq!(rows.data[0].game_id, "old");
+        assert_eq!(rows.data[0].total_turns, 50);
+        assert_eq!(rows.data[0].params_hash, None);
+        assert_eq!(rows.data[0].engine_version, None);
+    }
+
+    #[actix_web::test]
+    async fn outcome_stores_params_hash_and_version() {
+        let pool = memory_pool().await;
+        run_migrations(&pool).await;
+
+        let record = outcome().attributed_to(Some(0xabc), "1.2.3");
+        insert_outcome(&pool, "standard", "game", record).await;
+
+        let rows = get_outcomes(&pool, Some("standard"), 10, 0).await.unwrap();
+        assert_eq!(
+            rows.data[0].params_hash.as_deref(),
+            Some("0000000000000abc")
+        );
+        assert_eq!(rows.data[0].engine_version.as_deref(), Some("1.2.3"));
     }
 }

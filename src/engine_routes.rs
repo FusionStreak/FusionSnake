@@ -21,6 +21,7 @@ use actix_web::{HttpRequest, HttpResponse};
 use fusion_core::SnakeEngine;
 use futures_util::future::Either;
 use log::{error, info};
+use serde::Serialize;
 
 use crate::auth;
 use crate::db;
@@ -176,6 +177,17 @@ pub async fn handle_move<E: SnakeEngine + 'static>(
     })
 }
 
+/// Stable FNV-1a hash of an engine's serialized params, used to attribute
+/// game results to the params that played them.
+fn params_hash<P: Serialize>(params: &P) -> Option<u64> {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let bytes = serde_json::to_vec(params).ok()?;
+    Some(bytes.iter().fold(OFFSET, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(PRIME)
+    }))
+}
+
 #[utoipa::path(
     post,
     path = "/{engine}/end",
@@ -232,6 +244,8 @@ pub async fn handle_end<E: SnakeEngine + 'static>(
         ),
     };
 
+    let params_hash = params_hash(&engine.get_params().await);
+
     // Fire-and-forget: write outcome + aggregate stats to SQLite
     training.log_outcome(
         name,
@@ -244,7 +258,8 @@ pub async fn handle_end<E: SnakeEngine + 'static>(
             source,
             game_type,
             max_length_reached,
-        ),
+        )
+        .attributed_to(params_hash, env!("CARGO_PKG_VERSION")),
     );
     training.log_game_stats(name, turns, food_eaten, won, is_draw);
 
@@ -327,4 +342,18 @@ pub async fn handle_reset_config<E: SnakeEngine + 'static>(engine: Data<E>) -> H
     info!("{name} engine params reset to defaults via POST /{name}/config/reset");
     HttpResponse::Ok()
         .json(serde_json::json!({"status": "ok", "message": "Parameters reset to defaults"}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::params_hash;
+
+    #[test]
+    fn params_hash_is_stable_and_detects_changes() {
+        let first = serde_json::json!({"eval_area_weight": 10});
+        let changed = serde_json::json!({"eval_area_weight": 11});
+
+        assert_eq!(params_hash(&first), params_hash(&first.clone()));
+        assert_ne!(params_hash(&first), params_hash(&changed));
+    }
 }
