@@ -68,6 +68,7 @@ crates/
   fusion-core/                SnakeEngine trait and shared engine types
   fusion-models/              Battlesnake API request/response models
   fusion-engine-standard/     Standard/Duels engine (search, evaluation, simulation, benches)
+  fusion-arena/               Development-only match, tuning, and promotion tool
 data/                         Runtime state (git-ignored): SQLite DB, engine params
 ```
 
@@ -149,6 +150,10 @@ cargo bench --workspace          # Criterion benches live in engine crates
 ```
 
 `clippy::pedantic` is enabled as a warning. All new code must pass without suppression.
+
+## Tuning
+
+Tune on a development machine, not the server hosting the live snake. [`fusion-arena`](./crates/fusion-arena/README.md) plays reproducible matches, tunes parameters with CMA-ES, and promotes a candidate only after a statistical test. Apply a promoted file with `POST /standard/config`. Each game outcome records a `params_hash` and `engine_version`, so ladder results can confirm the change.
 
 ## CI and Container Images
 
