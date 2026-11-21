@@ -3,6 +3,7 @@
 mod cma;
 mod gauntlet;
 mod matches;
+mod promote;
 mod rules;
 mod stats;
 mod tune;
@@ -32,6 +33,8 @@ enum Commands {
     Match(MatchArgs),
     /// Tune engine parameters through self-play with CMA-ES.
     Tune(tune::TuneArgs),
+    /// Test whether candidate params should replace the champion.
+    Promote(promote::PromoteArgs),
     /// Check the arena referee against game logs from `battlesnake play -o`.
     VerifyRules {
         /// Log files to check.
@@ -221,6 +224,7 @@ fn main() -> ExitCode {
         }
         Commands::Match(args) => run_match(&args),
         Commands::Tune(args) => tune::run(&args),
+        Commands::Promote(args) => promote::run(&args),
         Commands::VerifyRules { logs } => run_verify(&logs),
         Commands::Worker(args) => worker::serve(args.params.as_deref(), args.evaluations),
     };

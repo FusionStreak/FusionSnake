@@ -31,6 +31,12 @@ fusion-arena tune --out runs/first --generations 40 --evaluations 2000 --seeds 4
 
 Each generation writes `mean-NNN.json` and updates `best.json`, so a run can be stopped at any time. Scores near 0.5 mean a candidate plays level with its opponents. Scores within a run are noisy and are not proof of improvement, so check `best.json` with `match` on fresh seeds before using it.
 
+**`promote`** decides whether tuned params should replace the champion. It runs a sequential test on Duels (50% against 52%, with 5% error rates), then rejects candidates that are clearly worse in 4-player games. The candidate is copied to `--out` only if it passes. Applying it stays a manual `POST /standard/config`.
+
+```bash
+fusion-arena promote --candidate runs/first/best.json --out runs/first/promoted.json
+```
+
 **`verify-rules`** replays logs from `battlesnake play --output` and checks that the arena's referee reproduces every turn.
 
 ## Design notes
