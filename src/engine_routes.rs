@@ -119,7 +119,7 @@ pub async fn handle_start<E: SnakeEngine + 'static>(
             (name, game_state.game.id.clone()),
             stats::ActiveGame {
                 last_turn: 0,
-                started_at: chrono::Utc::now(),
+                started_at: time::OffsetDateTime::now_utc(),
                 starting_length: game_state.you.length,
                 max_length_reached: game_state.you.length,
                 source,
