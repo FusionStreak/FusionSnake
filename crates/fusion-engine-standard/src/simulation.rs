@@ -175,8 +175,7 @@ impl SimBoard {
     /// 4. Feed snakes on food (restore health, mark for growth)
     /// 5. Eliminate snakes with health <= 0
     /// 6. Eliminate snakes that moved out of bounds
-    /// 7. Eliminate snakes that collided with a body segment
-    /// 8. Resolve head-to-head collisions
+    /// 7. Eliminate body and head-to-head collisions simultaneously
     pub fn apply_moves(&mut self, moves: &[Direction]) {
         let n = self.snakes.len();
         debug_assert!(moves.len() >= n, "need one move per snake");
@@ -255,54 +254,33 @@ impl SimBoard {
             }
         }
 
-        // ── Step 7: Body collision check ─────────────────────────────────
-        // A snake's head moving into any body segment (of any snake) is fatal.
-        // We check against the full body *including* the head of other snakes
-        // (head-to-head is resolved separately below).
-        for i in 0..n {
-            if !self.snakes[i].alive {
-                continue;
-            }
-            let head = self.snakes[i].head();
-            for other in &self.snakes {
-                if !other.alive {
-                    continue;
-                }
-                // Skip checking head-to-head (handled in step 8)
-                let start = 1; // skip head (head-to-head handled in step 9)
-                if other.body.iter().skip(start).any(|&seg| seg == head) {
-                    self.snakes[i].alive = false;
-                    break;
-                }
+        // ── Step 7: Body and head-to-head collisions ─────────────────────
+        // Decide every collision before applying any, so a snake dying this
+        // turn still counts as an obstacle for the others.
+        let collided: Vec<bool> = (0..n).map(|i| self.has_collided(i)).collect();
+        for (snake, collided) in self.snakes.iter_mut().zip(collided) {
+            if collided {
+                snake.alive = false;
             }
         }
+    }
 
-        // ── Step 8: Head-to-head resolution ──────────────────────────────
-        // If two or more snakes share the same head position, the shorter
-        // ones die.  If they are equal length, all die.
-        for i in 0..n {
-            if !self.snakes[i].alive {
-                continue;
-            }
-            let head_i = self.snakes[i].head();
-            for j in (i + 1)..n {
-                if !self.snakes[j].alive {
-                    continue;
-                }
-                if self.snakes[j].head() == head_i {
-                    let len_i = self.snakes[i].length();
-                    let len_j = self.snakes[j].length();
-                    match len_i.cmp(&len_j) {
-                        std::cmp::Ordering::Less => self.snakes[i].alive = false,
-                        std::cmp::Ordering::Greater => self.snakes[j].alive = false,
-                        std::cmp::Ordering::Equal => {
-                            self.snakes[i].alive = false;
-                            self.snakes[j].alive = false;
-                        }
-                    }
-                }
-            }
+    /// Whether a live snake's head hit any body segment, or met another head
+    /// belonging to a snake of equal or greater length.
+    fn has_collided(&self, index: usize) -> bool {
+        let snake = &self.snakes[index];
+        if !snake.alive {
+            return false;
         }
+        let head = snake.head();
+        self.snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, other)| other.alive)
+            .any(|(j, other)| {
+                other.body.iter().skip(1).any(|&segment| segment == head)
+                    || (j != index && other.head() == head && snake.length() <= other.length())
+            })
     }
 
     /// Get non-suicidal moves for a snake (moves that don't immediately go
@@ -509,6 +487,33 @@ mod tests {
         // After enemy moves Right, their body is [7,6],[6,6],[5,6],[5,7]
         // We moved to (5,6) which is enemy's body[2] → we die
         assert!(!board.snakes[0].alive);
+    }
+
+    #[test]
+    fn test_mutual_body_collision_kills_both() {
+        let us = make_snake(&[(4, 5), (4, 4), (4, 3), (4, 2)], 100);
+        let enemy = make_snake(&[(5, 4), (5, 5), (5, 6), (5, 7)], 100);
+        let mut board = make_board(11, 11, vec![us, enemy], vec![]);
+
+        // Each head lands on the other snake's body.
+        board.apply_moves(&[Direction::Right, Direction::Left]);
+
+        assert!(!board.snakes[0].alive);
+        assert!(!board.snakes[1].alive);
+    }
+
+    #[test]
+    fn test_three_way_head_to_head_longest_survives() {
+        let longest = make_snake(&[(4, 5), (3, 5), (2, 5), (1, 5)], 100);
+        let short = make_snake(&[(6, 5), (7, 5), (8, 5)], 100);
+        let other_short = make_snake(&[(5, 6), (5, 7), (5, 8)], 100);
+        let mut board = make_board(11, 11, vec![longest, short, other_short], vec![]);
+
+        board.apply_moves(&[Direction::Right, Direction::Left, Direction::Down]);
+
+        assert!(board.snakes[0].alive);
+        assert!(!board.snakes[1].alive);
+        assert!(!board.snakes[2].alive);
     }
 
     #[test]
