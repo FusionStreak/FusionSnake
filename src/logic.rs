@@ -12,7 +12,7 @@
 
 use log::info;
 
-use crate::game_objects::{Battlesnake, Board, Game};
+use fusion_models::{Battlesnake, Board, Game};
 
 // start is called when your Battlesnake begins a game
 pub fn start(engine: &str, game: &Game) {
