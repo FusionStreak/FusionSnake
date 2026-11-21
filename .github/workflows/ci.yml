@@ -98,12 +98,24 @@ jobs:
 
             - run: cargo doc --workspace --all-features --no-deps --locked
 
+    # Advisories are deliberately excluded: they can appear with no code change
+    # and would block unrelated PRs. See cargo-deny-advisories.yml.
+    deny:
+        name: Cargo deny
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  command: check licenses bans sources
+
     # Single required status check for branch protection. Add new jobs to
     # `needs` here instead of editing the branch protection rules.
     ci-success:
         name: CI success
         if: always()
-        needs: [fmt, clippy, test, docs]
+        needs: [fmt, clippy, test, docs, deny]
         runs-on: ubuntu-latest
         steps:
             - name: Fail if any required job failed or was cancelled

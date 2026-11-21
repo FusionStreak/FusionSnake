@@ -1,0 +1,38 @@
+# cargo-deny configuration. Licenses, bans and sources are required in ci.yml.
+# Advisories run separately in cargo-deny-advisories.yml, so a newly published
+# advisory can't block unrelated PRs.
+
+[advisories]
+version = 2
+# Report yanked crates without failing: they are often transitive and outside
+# this repository's control.
+yanked = "warn"
+ignore = [
+    # Transitive-only advisories currently not directly upgradable from this repository.
+    # Remove each ignore once upstream dependency graph moves to a fixed version.
+    { id = "RUSTSEC-2026-0258", reason = "h2: transitive, no direct upgrade" },
+    # chrono is unmaintained but has no known vulnerability. Replacing it is a
+    # separate migration (the advisory suggests jiff or time).
+    { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, migration not yet scheduled" },
+]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
