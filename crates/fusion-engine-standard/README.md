@@ -34,9 +34,9 @@ benches/
 3. **Search.** `search::search()` runs iterative deepening:
    - Root moves are pre-ordered by a 1-ply evaluation to improve pruning.
    - Depth starts at 1 and goes up to 50. No new depth starts after 60% of the budget has been used. A depth that hits the hard deadline (checked every 512 nodes) is thrown away, and the last completed depth's move is used.
-   - **Paranoid assumption:** we maximize. For each of our moves, every enemy independently picks the reply that minimizes our evaluation. That gives our 4 moves × (≤4 × N enemy moves) per ply, instead of 4^(N+1).
-   - Alpha-beta pruning over the resulting tree.
-4. **Evaluate.** `evaluation::evaluate()` scores each leaf from our perspective (higher is better; dead = `i32::MIN + 1`, won = `i32::MAX - 1`):
+   - **Paranoid assumption:** we maximize. For each of our moves, the nearest enemy is a true minimizing player and all of its replies are searched. Any other enemies play the reply that looks worst for us one ply ahead, which limits branching with 3-4 snakes.
+   - Alpha-beta pruning over the resulting tree. Forced losses and wins are scored by distance, so the search survives as long as possible and takes the fastest win.
+4. **Evaluate.** `evaluation::evaluate()` scores each leaf from our perspective (higher is better; dead = `LOSS_SCORE`, won = `WIN_SCORE`):
 
    | Term | Effect | Params |
    | --- | --- | --- |

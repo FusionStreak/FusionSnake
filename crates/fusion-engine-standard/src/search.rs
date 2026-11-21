@@ -1,11 +1,10 @@
 //! Iterative-deepening paranoid minimax with alpha-beta pruning.
 //!
-//! Our snake (index 0) is the maximizing player.  All enemy snakes are
-//! treated as a single minimizing adversary — for each enemy independently,
-//! the move that minimises our evaluation is chosen.  This "paranoid"
-//! assumption is conservative but sound and keeps the branching factor
-//! manageable: our 4 moves × (≤4 moves per enemy × N enemies) instead of
-//! the full 4^(N+1).
+//! Our snake (index 0) is the maximizing player.  For each of our moves, the
+//! nearest enemy is a true minimizing player: every reply it has is searched
+//! and the worst one for us counts.  Any other enemies play the reply that
+//! looks worst for us one ply ahead, which keeps the branching factor
+//! manageable with 3-4 snakes instead of the full 4^N per turn.
 //!
 //! Time management is handled by iterative deepening: the search starts at
 //! depth 1, completes, then tries depth 2, etc.  If the time budget runs
@@ -152,14 +151,7 @@ pub fn search_with_limit(
                 break;
             }
 
-            let mut sim = board.clone();
-            // Apply our move, then let enemies respond optimally (minimise)
-            let enemy_moves = pick_enemy_moves(&sim, dir, params, &mut ctx.evaluations);
-            let mut all_moves = vec![dir];
-            all_moves.extend_from_slice(&enemy_moves);
-            sim.apply_moves(&all_moves);
-
-            let score = ctx.minimax(&sim, depth - 1, 1, alpha, i32::MAX - 1);
+            let score = ctx.search_move(board, dir, depth, 0, alpha, i32::MAX - 1);
 
             if !ctx.timed_out && score > best_score {
                 best_score = score;
@@ -233,6 +225,15 @@ fn pick_enemy_moves(
     enemy_moves
 }
 
+/// Index of the living enemy whose head is closest to ours. Ties go to the
+/// lowest index, so the choice is deterministic.
+fn nearest_enemy(board: &SimBoard) -> Option<usize> {
+    let head = board.us().head();
+    (1..board.snakes.len())
+        .filter(|&i| board.snakes[i].alive)
+        .min_by_key(|&i| head.distance_to(board.snakes[i].head()))
+}
+
 /// Adjusts terminal scores by distance from the root, so the search delays
 /// losses and takes wins sooner. Other scores are unchanged.
 fn score_at_ply(score: i32, ply: u8) -> i32 {
@@ -266,23 +267,16 @@ impl SearchContext<'_> {
             return score_at_ply(evaluate(board, self.params), ply);
         }
 
-        // Our turn: try each of our moves. Enemies respond adversarially via
-        // pick_enemy_moves at every ply — no separate minimizing ply needed.
+        // Maximizing step: take the best of our moves.
         let our_moves = board.safe_moves(0);
         let mut best = i32::MIN + 1;
 
-        for dir in &our_moves {
+        for &dir in &our_moves {
             if self.timed_out {
                 return best;
             }
 
-            let mut sim = board.clone();
-            let enemy_moves = pick_enemy_moves(&sim, *dir, self.params, &mut self.evaluations);
-            let mut all_moves = vec![*dir];
-            all_moves.extend_from_slice(&enemy_moves);
-            sim.apply_moves(&all_moves);
-
-            let score = self.minimax(&sim, depth - 1, ply + 1, alpha, beta);
+            let score = self.search_move(board, dir, depth, ply, alpha, beta);
             best = best.max(score);
             alpha = alpha.max(best);
             if alpha >= beta {
@@ -290,6 +284,55 @@ impl SearchContext<'_> {
             }
         }
         best
+    }
+
+    /// Minimizing step: the value of `our_move` is the nearest enemy's best
+    /// reply against it. The greedy reply is tried first to prune sooner.
+    fn search_move(
+        &mut self,
+        board: &SimBoard,
+        our_move: Direction,
+        depth: u8,
+        ply: u8,
+        alpha: i32,
+        mut beta: i32,
+    ) -> i32 {
+        let mut all_moves = Vec::with_capacity(board.snakes.len());
+        all_moves.push(our_move);
+        all_moves.extend(pick_enemy_moves(
+            board,
+            our_move,
+            self.params,
+            &mut self.evaluations,
+        ));
+
+        let Some(target) = nearest_enemy(board) else {
+            let mut sim = board.clone();
+            sim.apply_moves(&all_moves);
+            return self.minimax(&sim, depth - 1, ply + 1, alpha, beta);
+        };
+
+        let greedy = all_moves[target];
+        let others = board.safe_moves(target);
+        let replies = std::iter::once(greedy).chain(others.into_iter().filter(|&m| m != greedy));
+
+        let mut worst = i32::MAX;
+        for reply in replies {
+            all_moves[target] = reply;
+            let mut sim = board.clone();
+            sim.apply_moves(&all_moves);
+
+            let score = self.minimax(&sim, depth - 1, ply + 1, alpha, beta);
+            if self.timed_out {
+                return worst;
+            }
+            worst = worst.min(score);
+            beta = beta.min(worst);
+            if worst <= alpha {
+                break;
+            }
+        }
+        worst
     }
 }
 
@@ -367,6 +410,91 @@ mod tests {
         let result = search(&board, &params, 200);
 
         assert_eq!(result.best_move, Direction::Up);
+    }
+
+    /// Same tree as `SearchContext::minimax`, with no pruning.
+    fn exhaustive_value(board: &SimBoard, params: &HeuristicParams, depth: u8, ply: u8) -> i32 {
+        if depth == 0 || board.is_terminal() {
+            return score_at_ply(evaluate(board, params), ply);
+        }
+        board
+            .safe_moves(0)
+            .into_iter()
+            .map(|dir| {
+                let mut unused = 0;
+                let mut moves = vec![dir];
+                moves.extend(pick_enemy_moves(board, dir, params, &mut unused));
+                let child = |moves: &[Direction]| {
+                    let mut sim = board.clone();
+                    sim.apply_moves(moves);
+                    exhaustive_value(&sim, params, depth - 1, ply + 1)
+                };
+                match nearest_enemy(board) {
+                    Some(target) => board
+                        .safe_moves(target)
+                        .into_iter()
+                        .map(|reply| {
+                            moves[target] = reply;
+                            child(&moves)
+                        })
+                        .min()
+                        .expect("safe_moves is never empty"),
+                    None => child(&moves),
+                }
+            })
+            .max()
+            .expect("safe_moves is never empty")
+    }
+
+    #[test]
+    fn test_pruning_matches_exhaustive_search() {
+        let params = default_params();
+        let boards = [
+            make_board(
+                11,
+                11,
+                vec![
+                    make_snake(&[(5, 5), (5, 4), (5, 3)], 100),
+                    make_snake(&[(7, 5), (7, 4), (7, 3)], 100),
+                ],
+                vec![Coord::new(6, 7)],
+            ),
+            make_board(
+                11,
+                11,
+                vec![
+                    make_snake(&[(1, 1), (1, 0), (0, 0), (0, 1)], 40),
+                    make_snake(&[(3, 2), (3, 1), (3, 0)], 80),
+                    make_snake(&[(8, 8), (8, 7), (8, 6)], 90),
+                ],
+                vec![Coord::new(2, 3), Coord::new(9, 9)],
+            ),
+        ];
+
+        for board in &boards {
+            for depth in 1..=3 {
+                let mut ctx = SearchContext {
+                    params: &params,
+                    budget: Budget::new(SearchLimit::Evaluations(u64::MAX)),
+                    nodes: 0,
+                    evaluations: 0,
+                    timed_out: false,
+                };
+                let pruned = ctx.minimax(board, depth, 0, i32::MIN + 1, i32::MAX - 1);
+                assert_eq!(pruned, exhaustive_value(board, &params, depth, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_nearest_enemy_skips_dead_snakes() {
+        let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 100);
+        let mut close = make_snake(&[(6, 6), (6, 7), (6, 8)], 100);
+        close.alive = false;
+        let far = make_snake(&[(9, 9), (9, 8), (9, 7)], 100);
+        let board = make_board(11, 11, vec![us, close, far], vec![]);
+
+        assert_eq!(nearest_enemy(&board), Some(2));
     }
 
     #[test]
