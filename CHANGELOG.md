@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1](https://github.com/FusionStreak/FusionSnake/compare/v0.6.0...v0.6.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* remove compatibility re-exports from the server crate ([0aaa339](https://github.com/FusionStreak/FusionSnake/commit/0aaa3397375c8fcccbfeee262b811f42c75e1a25))
+* replace unmaintained chrono with time ([ac97ca4](https://github.com/FusionStreak/FusionSnake/commit/ac97ca4eb43202d461662d156f6e9c846fa5d8f7))
+
 ## [0.6.0](https://github.com/FusionStreak/FusionSnake/compare/v0.5.0...v0.6.0) (2026-11-21)
 
 
