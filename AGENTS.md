@@ -58,7 +58,7 @@ Manual smoke test: run the server with throwaway state, e.g. `DATABASE_URL=sqlit
 
 ## Conventions
 
-- **Toolchain:** pinned in `rust-toolchain.toml`. Don't change it as a side effect. A bump updates `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and `FROM rust:…` in `src/Dockerfile` together.
+- **Toolchain:** pinned in `rust-toolchain.toml`. Don't change it as a side effect. A bump updates `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and `FROM rust:…` in `src/Dockerfile` together. Use `.github/scripts/bump-rust-toolchain.sh <version>`; `rust-canary` runs it to open bump PRs.
 - **Lints:** `clippy::pedantic` is enabled workspace-wide and CI uses `-D warnings` (rustdoc too, so intra-doc links must resolve). Fix lints rather than suppressing them. If an `#[allow(...)]` is truly needed, scope it to the item and say why in a comment.
 - **Integer conversions:** prefer `From`/`TryFrom` and `.cast_signed()`/`.cast_unsigned()`. Use `as` only with a targeted `#[allow(clippy::cast_*)]`.
 - **Coordinates:** `i8`, origin `(0, 0)` bottom-left, `y` increases upward (Battlesnake convention).
