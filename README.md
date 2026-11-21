@@ -62,8 +62,6 @@ src/                          server binary (fusion-snake)
   responses.rs                utoipa-annotated response structs
   auth.rs                     X-API-Key validation (constant-time compare)
   logged_json.rs              JSON extractor that logs raw request bodies
-  lib.rs, evaluation.rs,      Compatibility re-exports of fusion-models and
-  game_objects.rs               fusion-engine-standard modules
 crates/
   fusion-core/                SnakeEngine trait and shared engine types
   fusion-models/              Battlesnake API request/response models
