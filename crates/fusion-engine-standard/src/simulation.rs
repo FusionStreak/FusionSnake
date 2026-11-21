@@ -171,8 +171,8 @@ impl SimBoard {
     /// Follows the official Battlesnake rule resolution order:
     /// 1. Move all snakes (advance head, maybe remove tail)
     /// 2. Reduce health by 1
-    /// 3. Feed snakes on food (restore health, mark for growth)
-    /// 4. Apply hazard damage
+    /// 3. Apply hazard damage, except on tiles holding food
+    /// 4. Feed snakes on food (restore health, mark for growth)
     /// 5. Eliminate snakes with health <= 0
     /// 6. Eliminate snakes that moved out of bounds
     /// 7. Eliminate snakes that collided with a body segment
@@ -202,7 +202,21 @@ impl SimBoard {
             }
         }
 
-        // ── Step 3: Feed snakes on food ──────────────────────────────────
+        // ── Step 3: Hazard damage ────────────────────────────────────────
+        // A hazard tile holding food deals no damage.
+        if self.hazard_damage > 0 {
+            for snake in &mut self.snakes {
+                if !snake.alive {
+                    continue;
+                }
+                let head = snake.head();
+                if self.hazards.contains(&head) && !self.food.contains(&head) {
+                    snake.health -= self.hazard_damage;
+                }
+            }
+        }
+
+        // ── Step 4: Feed snakes on food ──────────────────────────────────
         // Runs before any health elimination: a snake reaching 0 health on a
         // food tile eats and survives.
         self.food.retain(|food| {
@@ -222,19 +236,6 @@ impl SimBoard {
             }
             !eaten
         });
-
-        // ── Step 4: Hazard damage ────────────────────────────────────────
-        if self.hazard_damage > 0 {
-            for snake in &mut self.snakes {
-                if !snake.alive {
-                    continue;
-                }
-                let head = snake.head();
-                if self.hazards.contains(&head) {
-                    snake.health -= self.hazard_damage;
-                }
-            }
-        }
 
         // ── Step 5: Starvation and hazard death ──────────────────────────
         for snake in &mut self.snakes {
@@ -364,9 +365,11 @@ impl SimBoard {
             }
 
             // Don't step onto a hazard if it would be instantly lethal
-            // (health - 1 turn decay - hazard_damage <= 0)
+            // (health - 1 turn decay - hazard_damage <= 0). Food cancels the
+            // damage, so a hazard tile holding food is never lethal.
             if self.hazard_damage > 0
                 && self.hazards.contains(&next)
+                && !self.food.contains(&next)
                 && snake.health - 1 - self.hazard_damage <= 0
             {
                 continue;
@@ -520,6 +523,31 @@ mod tests {
         assert!(board.snakes[0].alive);
         // health: 50 - 1 (turn) - 15 (hazard) = 34
         assert_eq!(board.snakes[0].health, 34);
+    }
+
+    #[test]
+    fn test_hazard_with_food_deals_no_damage() {
+        let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 10);
+        let mut board = make_board(11, 11, vec![us], vec![Coord::new(5, 6)]);
+        board.hazards.push(Coord::new(5, 6));
+        board.hazard_damage = 15;
+
+        assert!(board.safe_moves(0).contains(&Direction::Up));
+        board.apply_moves(&[Direction::Up]);
+
+        assert!(board.snakes[0].alive);
+        assert_eq!(board.snakes[0].health, 100);
+        assert_eq!(board.snakes[0].length(), 4);
+    }
+
+    #[test]
+    fn test_lethal_hazard_without_food_is_unsafe() {
+        let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 10);
+        let mut board = make_board(11, 11, vec![us], vec![]);
+        board.hazards.push(Coord::new(5, 6));
+        board.hazard_damage = 15;
+
+        assert!(!board.safe_moves(0).contains(&Direction::Up));
     }
 
     #[test]
