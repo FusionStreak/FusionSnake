@@ -23,6 +23,14 @@ fusion-arena gauntlet --candidate me=http://127.0.0.1:6666/standard \
   --opponent snork=http://127.0.0.1:5000 --timeout-ms 500 --concurrency 1
 ```
 
+**`tune`** searches for better parameters with a diagonal CMA-ES. Each candidate plays Duels and 4-player games against the starting params and recent generation means, on seeds that change every generation. `eval_area_weight` is held fixed because only the ratios between weights matter, and `search_time_pct` is not tuned.
+
+```bash
+fusion-arena tune --out runs/first --generations 40 --evaluations 2000 --seeds 4
+```
+
+Each generation writes `mean-NNN.json` and updates `best.json`, so a run can be stopped at any time. Scores near 0.5 mean a candidate plays level with its opponents. Scores within a run are noisy and are not proof of improvement, so check `best.json` with `match` on fresh seeds before using it.
+
 **`verify-rules`** replays logs from `battlesnake play --output` and checks that the arena's referee reproduces every turn.
 
 ## Design notes

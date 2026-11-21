@@ -1,9 +1,11 @@
 //! Offline match harness for measuring `FusionSnake` engines.
 
+mod cma;
 mod gauntlet;
 mod matches;
 mod rules;
 mod stats;
+mod tune;
 mod verify;
 mod worker;
 
@@ -28,6 +30,8 @@ enum Commands {
     Gauntlet(GauntletArgs),
     /// Play two engine builds against each other with a fixed search budget.
     Match(MatchArgs),
+    /// Tune engine parameters through self-play with CMA-ES.
+    Tune(tune::TuneArgs),
     /// Check the arena referee against game logs from `battlesnake play -o`.
     VerifyRules {
         /// Log files to check.
@@ -216,6 +220,7 @@ fn main() -> ExitCode {
             Ok(())
         }
         Commands::Match(args) => run_match(&args),
+        Commands::Tune(args) => tune::run(&args),
         Commands::VerifyRules { logs } => run_verify(&logs),
         Commands::Worker(args) => worker::serve(args.params.as_deref(), args.evaluations),
     };
