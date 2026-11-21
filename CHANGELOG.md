@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/FusionStreak/FusionSnake/compare/v0.5.0...v0.6.0) (2026-11-21)
+
+
+### Features
+
+* add CMA-ES parameter tuning to the arena ([0c392d6](https://github.com/FusionStreak/FusionSnake/commit/0c392d6677f47709aefbd009c6c00d79d754c57a))
+* add offline match arena with deterministic search limit ([ff4d2f9](https://github.com/FusionStreak/FusionSnake/commit/ff4d2f9982003ec16242d9a444c9515ad6ee4a4e))
+* add statistical params promotion test ([5040f17](https://github.com/FusionStreak/FusionSnake/commit/5040f17922f3c41d29eaa51685e6756a5b3d359a))
+* make health-tier multipliers tunable ([47ac1cc](https://github.com/FusionStreak/FusionSnake/commit/47ac1ccaa3a51b9d6e5e5e8fb140ccbbbcd9c5be))
+* record params hash and version on game outcomes ([32b865d](https://github.com/FusionStreak/FusionSnake/commit/32b865d23a308ac305e18ccd1a7ccbee2dbcffe2))
+
+
+### Bug Fixes
+
+* apply desperate food multiplier once ([1ad209e](https://github.com/FusionStreak/FusionSnake/commit/1ad209e99362e4901e22244c4d8a5749c44faca5))
+* apply hazard damage before feeding and skip it on food ([713fe27](https://github.com/FusionStreak/FusionSnake/commit/713fe275fbcd5059c017c2372cee6ca0eddf55b2))
+* let snakes at zero health survive by eating ([34e69f8](https://github.com/FusionStreak/FusionSnake/commit/34e69f8cd37fb9390fc43ad5a0181c359d143a4a))
+* prefer the longest survival in forced losses ([ffd8963](https://github.com/FusionStreak/FusionSnake/commit/ffd8963fc543e9d5a92bfcdfa16679b0e43fa160))
+* resolve snake collisions simultaneously ([3633937](https://github.com/FusionStreak/FusionSnake/commit/36339374d951f592ed8e6507c213ec0d46e1242c))
+* search real enemy replies with working alpha-beta ([3132738](https://github.com/FusionStreak/FusionSnake/commit/31327380b02ca6c1c0af198d92c9cba198034be0))
+
 ## [0.5.0](https://github.com/FusionStreak/FusionSnake/compare/v0.4.0...v0.5.0) (2026-11-18)
 
 
