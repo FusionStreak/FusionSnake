@@ -13,7 +13,7 @@
 
 use std::time::Instant;
 
-use crate::evaluation::evaluate;
+use crate::evaluation::{LOSS_SCORE, WIN_SCORE, evaluate};
 use crate::heuristic_params::HeuristicParams;
 use crate::simulation::{Direction, SimBoard};
 
@@ -159,7 +159,7 @@ pub fn search_with_limit(
             all_moves.extend_from_slice(&enemy_moves);
             sim.apply_moves(&all_moves);
 
-            let score = ctx.minimax(&sim, depth - 1, alpha, i32::MAX - 1);
+            let score = ctx.minimax(&sim, depth - 1, 1, alpha, i32::MAX - 1);
 
             if !ctx.timed_out && score > best_score {
                 best_score = score;
@@ -233,6 +233,16 @@ fn pick_enemy_moves(
     enemy_moves
 }
 
+/// Adjusts terminal scores by distance from the root, so the search delays
+/// losses and takes wins sooner. Other scores are unchanged.
+fn score_at_ply(score: i32, ply: u8) -> i32 {
+    match score {
+        LOSS_SCORE => LOSS_SCORE + i32::from(ply),
+        WIN_SCORE => WIN_SCORE - i32::from(ply),
+        other => other,
+    }
+}
+
 struct SearchContext<'a> {
     params: &'a HeuristicParams,
     budget: Budget,
@@ -242,7 +252,7 @@ struct SearchContext<'a> {
 }
 
 impl SearchContext<'_> {
-    fn minimax(&mut self, board: &SimBoard, depth: u8, mut alpha: i32, beta: i32) -> i32 {
+    fn minimax(&mut self, board: &SimBoard, depth: u8, ply: u8, mut alpha: i32, beta: i32) -> i32 {
         self.nodes += 1;
 
         if self.budget.exhausted(self.nodes, self.evaluations) {
@@ -253,7 +263,7 @@ impl SearchContext<'_> {
         // Leaf node or terminal state
         if depth == 0 || board.is_terminal() {
             self.evaluations += 1;
-            return evaluate(board, self.params);
+            return score_at_ply(evaluate(board, self.params), ply);
         }
 
         // Our turn: try each of our moves. Enemies respond adversarially via
@@ -272,7 +282,7 @@ impl SearchContext<'_> {
             all_moves.extend_from_slice(&enemy_moves);
             sim.apply_moves(&all_moves);
 
-            let score = self.minimax(&sim, depth - 1, alpha, beta);
+            let score = self.minimax(&sim, depth - 1, ply + 1, alpha, beta);
             best = best.max(score);
             alpha = alpha.max(best);
             if alpha >= beta {
@@ -357,6 +367,32 @@ mod tests {
         let result = search(&board, &params, 200);
 
         assert_eq!(result.best_move, Direction::Up);
+    }
+
+    #[test]
+    fn test_later_loss_and_sooner_win_score_higher() {
+        assert!(score_at_ply(LOSS_SCORE, 5) > score_at_ply(LOSS_SCORE, 1));
+        assert!(score_at_ply(WIN_SCORE, 1) > score_at_ply(WIN_SCORE, 5));
+        assert_eq!(score_at_ply(1234, 5), 1234);
+    }
+
+    #[test]
+    fn test_forced_loss_prefers_longest_survival() {
+        // Lethal hazards wall off two dead ends. Right is one tile deep and
+        // nearer the food, so it is tried first. Left is two tiles deep.
+        let us = make_snake(&[(3, 0), (3, 1), (3, 2)], 100);
+        let enemy = make_snake(&[(8, 8), (8, 9), (8, 10)], 100);
+        let mut board = make_board(11, 11, vec![us, enemy], vec![Coord::new(5, 1)]);
+        board.hazards = [(0, 0), (1, 1), (2, 1), (4, 1), (5, 0)]
+            .iter()
+            .map(|&(x, y)| Coord::new(x, y))
+            .collect();
+        board.hazard_damage = 200;
+
+        let result = search_with_limit(&board, &default_params(), SearchLimit::Evaluations(5_000));
+
+        assert_eq!(result.best_move, Direction::Left);
+        assert_eq!(result.score, LOSS_SCORE + 3);
     }
 
     #[test]
