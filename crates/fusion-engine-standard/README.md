@@ -45,15 +45,15 @@ benches/
    | Body proximity | − per snake body segment adjacent to our head | `eval_body_proximity_penalty` |
    | Edge proximity | − per axis on which our head touches a wall | `eval_edge_penalty` |
    | Health | + health, tripled below 20 | `eval_health_weight` |
-   | Food proximity | + closer to the nearest food. Discounted when every food is contested by an equal-or-longer enemy. ×3 when desperate | `eval_food_weight`, `eval_food_contest_discount` |
+   | Food proximity | + closer to the nearest food. Discounted when every food is contested by an equal-or-longer enemy. Multiplied when desperate | `eval_food_weight`, `eval_food_contest_discount`, `eval_desperate_food_mult` |
    | Length advantage | + our length − longest enemy's length | `eval_length_weight` |
    | Aggression | + when within 2 of a shorter enemy's head | `eval_aggression_bonus` |
    | Head-to-head danger | − when adjacent to an equal-or-longer enemy's head | `eval_h2h_danger_penalty` |
 
    Weights also scale by health tier:
-   - **Desperate** (health below `health_threshold_desperate`): food ×3.
+   - **Desperate** (health below `health_threshold_desperate`): food × `eval_desperate_food_mult` (default 3).
    - **Balanced** (health below `health_threshold_balanced`): no scaling.
-   - **Healthy** (otherwise): area and length ×2.
+   - **Healthy** (otherwise): area × `eval_healthy_area_mult` and length × `eval_healthy_length_mult` (default 2 each).
 
 5. **Return.** The result is the chosen move plus `MoveFeatures` (board summary, search depth, eval score, search time), which the server logs as a training row.
 
@@ -76,7 +76,7 @@ All scoring constants live in [`HeuristicParams`](./src/heuristic_params.rs). Ne
 | `POST /standard/config` | Replace params (full `HeuristicParams` JSON body). Returns 400 on validation failure |
 | `POST /standard/config/reset` | Restore defaults |
 
-Validation rules: at least one of the area/health/food/length weights must be > 0, `search_time_pct` must be 1–90, `eval_food_contest_discount` must be 0–100, and `health_threshold_balanced` must be greater than `health_threshold_desperate`.
+Validation rules: at least one of the area/health/food/length weights must be > 0, `search_time_pct` must be 1–90, `eval_food_contest_discount` must be 0–100, `health_threshold_balanced` must be greater than `health_threshold_desperate`, and the three tier multipliers must be 1–10. Fields missing from a params file or request body take their default value.
 
 ## Benchmarks
 

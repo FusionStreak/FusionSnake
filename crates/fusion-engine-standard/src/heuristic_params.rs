@@ -18,7 +18,11 @@ use tokio::sync::RwLock;
 use utoipa::ToSchema;
 
 /// Every tunable constant used in the move-decision algorithm.
+///
+/// Missing fields take their [`Default`] value, so params files written by
+/// older versions keep loading when a field is added.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
 pub struct HeuristicParams {
     // ── evaluation function weights (used by tree search) ────────────────
     /// Weight for Voronoi area control in the evaluation function.
@@ -55,6 +59,12 @@ pub struct HeuristicParams {
     pub health_threshold_desperate: u16,
     /// Health below this (but above desperate) triggers "balanced" mode.
     pub health_threshold_balanced: u16,
+    /// Food score multiplier while desperate (1–10).
+    pub eval_desperate_food_mult: u16,
+    /// Area score multiplier while healthy (1–10).
+    pub eval_healthy_area_mult: u16,
+    /// Length score multiplier while healthy (1–10).
+    pub eval_healthy_length_mult: u16,
 
     // ── search parameters ────────────────────────────────────────────────
     /// Fraction of the game timeout to use for search (1–90, as a percentage).
@@ -82,6 +92,9 @@ impl Default for HeuristicParams {
             // health-adaptive thresholds
             health_threshold_desperate: 30,
             health_threshold_balanced: 60,
+            eval_desperate_food_mult: 3,
+            eval_healthy_area_mult: 2,
+            eval_healthy_length_mult: 2,
             // search
             search_time_pct: 50,
         }
@@ -152,6 +165,15 @@ impl HeuristicParams {
         }
         if self.health_threshold_balanced <= self.health_threshold_desperate {
             errors.push("health_threshold_balanced must be > health_threshold_desperate".into());
+        }
+        for (name, value) in [
+            ("eval_desperate_food_mult", self.eval_desperate_food_mult),
+            ("eval_healthy_area_mult", self.eval_healthy_area_mult),
+            ("eval_healthy_length_mult", self.eval_healthy_length_mult),
+        ] {
+            if !(1..=10).contains(&value) {
+                errors.push(format!("{name} must be between 1 and 10"));
+            }
         }
 
         errors
@@ -252,4 +274,37 @@ pub fn create_shared_params() -> SharedParams {
         defaults
     });
     Arc::new(RwLock::new(params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn params_file_without_new_fields_keeps_saved_values() {
+        let saved = r#"{"eval_area_weight":17,"search_time_pct":40}"#;
+
+        let params: HeuristicParams = serde_json::from_str(saved).unwrap();
+
+        assert_eq!(params.eval_area_weight, 17);
+        assert_eq!(params.search_time_pct, 40);
+        assert_eq!(params.eval_desperate_food_mult, 3);
+        assert_eq!(params.eval_healthy_area_mult, 2);
+        assert_eq!(params.eval_healthy_length_mult, 2);
+    }
+
+    #[test]
+    fn defaults_are_valid() {
+        assert!(HeuristicParams::default().validate().is_empty());
+    }
+
+    #[test]
+    fn out_of_range_multiplier_is_rejected() {
+        let params = HeuristicParams {
+            eval_healthy_area_mult: 0,
+            ..HeuristicParams::default()
+        };
+
+        assert_eq!(params.validate().len(), 1);
+    }
 }

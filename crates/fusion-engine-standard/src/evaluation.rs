@@ -51,13 +51,17 @@ pub fn evaluate(board: &SimBoard, params: &HeuristicParams) -> i32 {
     let balanced = i32::from(params.health_threshold_balanced);
     let (area_mult, food_mult, length_mult) = if us.health < desperate {
         // Desperate: boost food, reduce area/length focus
-        (1, 3, 1)
+        (1, i32::from(params.eval_desperate_food_mult), 1)
     } else if us.health < balanced {
         // Balanced: standard weights
         (1, 1, 1)
     } else {
         // Healthy: boost area control and length advantage
-        (2, 1, 2)
+        (
+            i32::from(params.eval_healthy_area_mult),
+            1,
+            i32::from(params.eval_healthy_length_mult),
+        )
     };
 
     // ── Voronoi area control ─────────────────────────────────────────────
