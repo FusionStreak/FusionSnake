@@ -16,7 +16,7 @@ pub struct ActiveGame {
     /// Last turn number we participated in.
     pub last_turn: u32,
     /// When the game started.
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: time::OffsetDateTime,
     /// Starting length of our snake.
     pub starting_length: u32,
     /// Highest length reached during the game.
@@ -45,15 +45,15 @@ pub fn create_active_games() -> ActiveGames {
 /// Games older than the specified duration (in seconds) will be removed.
 pub fn cleanup_stale_games(active_games: &ActiveGames, max_age_seconds: i64) {
     if let Ok(mut games) = active_games.lock() {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         let initial_count = games.len();
 
         games.retain(|(engine, game_id), game| {
-            let age = now.signed_duration_since(game.started_at);
-            if age.num_seconds() > max_age_seconds {
+            let age = now - game.started_at;
+            if age.whole_seconds() > max_age_seconds {
                 warn!(
                     "Cleaning up stale game {game_id} (engine={engine}, age: {} seconds)",
-                    age.num_seconds()
+                    age.whole_seconds()
                 );
                 false
             } else {
@@ -65,5 +65,44 @@ pub fn cleanup_stale_games(active_games: &ActiveGames, max_age_seconds: i64) {
         if removed > 0 {
             info!("Cleaned up {removed} stale games");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game(started_at: time::OffsetDateTime) -> ActiveGame {
+        ActiveGame {
+            last_turn: 0,
+            started_at,
+            starting_length: 3,
+            max_length_reached: 3,
+            source: GameSource::Custom,
+            game_type: GameType::Standard,
+        }
+    }
+
+    #[test]
+    fn cleanup_removes_only_games_past_max_age() {
+        let games = create_active_games();
+        let now = time::OffsetDateTime::now_utc();
+        {
+            let mut map = games.lock().unwrap();
+            map.insert(
+                ("standard", "old".to_string()),
+                game(now - time::Duration::seconds(120)),
+            );
+            map.insert(
+                ("standard", "new".to_string()),
+                game(now - time::Duration::seconds(10)),
+            );
+        }
+
+        cleanup_stale_games(&games, 60);
+
+        let map = games.lock().unwrap();
+        assert!(!map.contains_key(&("standard", "old".to_string())));
+        assert!(map.contains_key(&("standard", "new".to_string())));
     }
 }

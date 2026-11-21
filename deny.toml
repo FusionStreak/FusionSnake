@@ -11,9 +11,6 @@ ignore = [
     # Transitive-only advisories currently not directly upgradable from this repository.
     # Remove each ignore once upstream dependency graph moves to a fixed version.
     { id = "RUSTSEC-2026-0258", reason = "h2: transitive, no direct upgrade" },
-    # chrono is unmaintained but has no known vulnerability. Replacing it is a
-    # separate migration (the advisory suggests jiff or time).
-    { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, migration not yet scheduled" },
 ]
 
 [licenses]

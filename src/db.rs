@@ -23,6 +23,24 @@ use std::str::FromStr;
 use crate::responses;
 use fusion_models::{GameSource, GameType};
 
+/// Format a timestamp for storage as UTC with a `+00:00` offset.
+///
+/// `recorded_at` columns are sorted as text, so new rows must stay comparable
+/// with existing ones.
+fn format_timestamp(at: time::OffsetDateTime) -> String {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}+00:00",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.nanosecond()
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Pool initialisation
 // ---------------------------------------------------------------------------
@@ -488,7 +506,7 @@ async fn migrate_json_stats(pool: &SqlitePool) {
 #[allow(clippy::cast_lossless)]
 #[allow(clippy::cast_possible_wrap)]
 pub async fn insert_turn(pool: &SqlitePool, engine: &str, game_id: &str, f: &MoveFeatures) {
-    let recorded_at = chrono::Utc::now().to_rfc3339();
+    let recorded_at = format_timestamp(time::OffsetDateTime::now_utc());
 
     if let Err(e) = sqlx::query(
         r"
@@ -594,7 +612,7 @@ pub async fn insert_outcome(
     game_id: &str,
     outcome: OutcomeRecord,
 ) {
-    let recorded_at = chrono::Utc::now().to_rfc3339();
+    let recorded_at = format_timestamp(time::OffsetDateTime::now_utc());
 
     if let Err(e) = sqlx::query(
         r"
@@ -636,7 +654,7 @@ pub async fn record_game(
     won: bool,
     is_draw: bool,
 ) {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = format_timestamp(time::OffsetDateTime::now_utc());
 
     let win_inc: i64 = i64::from(won && !is_draw);
     let loss_inc: i64 = i64::from(!won && !is_draw);
@@ -1088,6 +1106,39 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("in-memory database")
+    }
+
+    fn at(nanos: i128) -> time::OffsetDateTime {
+        time::OffsetDateTime::from_unix_timestamp_nanos(nanos).expect("valid timestamp")
+    }
+
+    #[test]
+    fn timestamp_keeps_the_stored_utc_format() {
+        assert_eq!(
+            format_timestamp(at(1_795_284_132_123_456_789)),
+            "2026-11-21T18:02:12.123456789+00:00"
+        );
+    }
+
+    #[test]
+    fn timestamp_converts_other_offsets_to_utc() {
+        let offset = time::UtcOffset::from_hms(-5, 0, 0).expect("valid offset");
+        assert_eq!(
+            format_timestamp(at(1_795_284_132_000_000_001).to_offset(offset)),
+            "2026-11-21T18:02:12.000000001+00:00"
+        );
+    }
+
+    #[test]
+    fn timestamp_sorts_after_earlier_rows_in_the_old_format() {
+        let new = format_timestamp(at(1_795_284_132_123_456_789));
+        for old in [
+            "2026-11-21T18:02:12+00:00",
+            "2026-11-21T18:02:12.123+00:00",
+            "2026-11-21T18:02:12.123456+00:00",
+        ] {
+            assert!(old < new.as_str(), "{old} should sort before {new}");
+        }
     }
 
     fn outcome() -> OutcomeRecord {
