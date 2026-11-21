@@ -134,10 +134,8 @@ pub fn evaluate(board: &SimBoard, params: &HeuristicParams) -> i32 {
             )
         };
 
-        let food_urgency = if us.health < desperate { 3 } else { 1 };
         let raw_food_score = i32::from(params.eval_food_weight)
             * food_mult
-            * food_urgency
             * i32::from(20_u8.saturating_sub(food_dist));
         score += raw_food_score * discount / 100;
     }
