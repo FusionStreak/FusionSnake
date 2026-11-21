@@ -1,0 +1,17 @@
+[package]
+name = "fusion-arena"
+version = "0.5.0"
+edition = "2024"
+rust-version.workspace = true
+license = "MIT"
+publish = false
+description = "Offline match harness for measuring FusionSnake engines"
+
+[dependencies]
+fusion-engine-standard = { path = "../fusion-engine-standard" }
+clap = { version = "^4", features = ["derive"] }
+serde = { version = "^1.0.229", features = ["derive"] }
+serde_json = "^1.0.151"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

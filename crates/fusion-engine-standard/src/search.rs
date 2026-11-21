@@ -29,14 +29,75 @@ pub struct SearchResult {
     pub nodes_evaluated: u64,
 }
 
+/// How much work a search may do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchLimit {
+    /// Stop on a wall-clock budget in milliseconds. Used for live games.
+    Time(u64),
+    /// Stop after this many board evaluations. Results do not depend on
+    /// machine speed or load, so offline matches are reproducible.
+    Evaluations(u64),
+}
+
+/// Resolved stopping conditions for one search.
+#[derive(Clone, Copy)]
+struct Budget {
+    deadline: Option<Instant>,
+    safe_deadline: Option<Instant>,
+    max_evaluations: Option<u64>,
+}
+
+impl Budget {
+    fn new(limit: SearchLimit) -> Self {
+        match limit {
+            SearchLimit::Time(ms) => {
+                let now = Instant::now();
+                Self {
+                    deadline: Some(now + std::time::Duration::from_millis(ms)),
+                    safe_deadline: Some(now + std::time::Duration::from_millis(ms * 60 / 100)),
+                    max_evaluations: None,
+                }
+            }
+            SearchLimit::Evaluations(max) => Self {
+                deadline: None,
+                safe_deadline: None,
+                max_evaluations: Some(max),
+            },
+        }
+    }
+
+    /// Whether another iterative-deepening pass may begin.
+    fn can_start_depth(&self, evaluations: u64) -> bool {
+        self.safe_deadline.is_none_or(|t| Instant::now() < t)
+            && self.max_evaluations.is_none_or(|max| evaluations < max)
+    }
+
+    /// Whether the running pass must be abandoned.
+    fn exhausted(&self, nodes: u64, evaluations: u64) -> bool {
+        self.max_evaluations.is_some_and(|max| evaluations >= max)
+            // Reading the clock is comparatively slow, so only do it every 512 nodes.
+            || (nodes.is_multiple_of(512) && self.deadline.is_some_and(|t| Instant::now() >= t))
+    }
+}
+
 /// Run iterative-deepening search within the given time budget.
 ///
 /// Returns the best move found at the deepest completed depth.
 #[must_use]
 pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -> SearchResult {
-    let deadline = Instant::now() + std::time::Duration::from_millis(time_budget_ms);
-    let safe_deadline =
-        Instant::now() + std::time::Duration::from_millis(time_budget_ms * 60 / 100);
+    search_with_limit(board, params, SearchLimit::Time(time_budget_ms))
+}
+
+/// Run iterative-deepening search under an explicit [`SearchLimit`].
+///
+/// Returns the best move found at the deepest completed depth.
+#[must_use]
+pub fn search_with_limit(
+    board: &SimBoard,
+    params: &HeuristicParams,
+    limit: SearchLimit,
+) -> SearchResult {
+    let budget = Budget::new(limit);
 
     let our_moves = board.safe_moves(0);
 
@@ -65,17 +126,20 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
         nodes_evaluated: ordered_moves.len() as u64,
     };
 
+    let mut evaluations = ordered_moves.len() as u64;
+
     // Iterative deepening
     for depth in 1..=50u8 {
-        // Check if we've used more than 60% of our time (safe margin)
-        if Instant::now() >= safe_deadline {
+        // Stop once the safe share of the budget has been used
+        if !budget.can_start_depth(evaluations) {
             break;
         }
 
         let mut ctx = SearchContext {
             params,
-            deadline,
+            budget,
             nodes: 0,
+            evaluations,
             timed_out: false,
         };
 
@@ -90,7 +154,7 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
 
             let mut sim = board.clone();
             // Apply our move, then let enemies respond optimally (minimise)
-            let enemy_moves = pick_enemy_moves(&sim, dir, params);
+            let enemy_moves = pick_enemy_moves(&sim, dir, params, &mut ctx.evaluations);
             let mut all_moves = vec![dir];
             all_moves.extend_from_slice(&enemy_moves);
             sim.apply_moves(&all_moves);
@@ -104,6 +168,7 @@ pub fn search(board: &SimBoard, params: &HeuristicParams, time_budget_ms: u64) -
             }
         }
 
+        evaluations = ctx.evaluations;
         if ctx.timed_out {
             best_result.nodes_evaluated += ctx.nodes;
             break;
@@ -126,6 +191,7 @@ fn pick_enemy_moves(
     board: &SimBoard,
     our_move: Direction,
     params: &HeuristicParams,
+    evaluations: &mut u64,
 ) -> Vec<Direction> {
     let mut enemy_moves = Vec::with_capacity(board.snakes.len() - 1);
 
@@ -153,6 +219,7 @@ fn pick_enemy_moves(
             }
             sim.apply_moves(&moves);
             let score = evaluate(&sim, params);
+            *evaluations += 1;
 
             if score < worst_score {
                 worst_score = score;
@@ -168,8 +235,9 @@ fn pick_enemy_moves(
 
 struct SearchContext<'a> {
     params: &'a HeuristicParams,
-    deadline: Instant,
+    budget: Budget,
     nodes: u64,
+    evaluations: u64,
     timed_out: bool,
 }
 
@@ -177,14 +245,14 @@ impl SearchContext<'_> {
     fn minimax(&mut self, board: &SimBoard, depth: u8, mut alpha: i32, beta: i32) -> i32 {
         self.nodes += 1;
 
-        // Time check every 512 nodes
-        if self.nodes.is_multiple_of(512) && Instant::now() >= self.deadline {
+        if self.budget.exhausted(self.nodes, self.evaluations) {
             self.timed_out = true;
             return 0;
         }
 
         // Leaf node or terminal state
         if depth == 0 || board.is_terminal() {
+            self.evaluations += 1;
             return evaluate(board, self.params);
         }
 
@@ -199,7 +267,7 @@ impl SearchContext<'_> {
             }
 
             let mut sim = board.clone();
-            let enemy_moves = pick_enemy_moves(&sim, *dir, self.params);
+            let enemy_moves = pick_enemy_moves(&sim, *dir, self.params, &mut self.evaluations);
             let mut all_moves = vec![*dir];
             all_moves.extend_from_slice(&enemy_moves);
             sim.apply_moves(&all_moves);
@@ -289,6 +357,39 @@ mod tests {
         let result = search(&board, &params, 200);
 
         assert_eq!(result.best_move, Direction::Up);
+    }
+
+    #[test]
+    fn test_evaluation_limit_is_deterministic() {
+        let make = || {
+            let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 100);
+            let e1 = make_snake(&[(2, 2), (2, 1), (2, 0)], 100);
+            let e2 = make_snake(&[(8, 8), (8, 7), (8, 6)], 100);
+            make_board(11, 11, vec![us, e1, e2], vec![Coord::new(3, 3)])
+        };
+        let params = default_params();
+        let limit = SearchLimit::Evaluations(5_000);
+
+        let first = search_with_limit(&make(), &params, limit);
+        let second = search_with_limit(&make(), &params, limit);
+
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.score, second.score);
+        assert_eq!(first.depth_reached, second.depth_reached);
+        assert_eq!(first.nodes_evaluated, second.nodes_evaluated);
+    }
+
+    #[test]
+    fn test_larger_evaluation_limit_searches_deeper() {
+        let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 100);
+        let enemy = make_snake(&[(8, 8), (8, 7), (8, 6)], 100);
+        let board = make_board(11, 11, vec![us, enemy], vec![Coord::new(3, 3)]);
+        let params = default_params();
+
+        let small = search_with_limit(&board, &params, SearchLimit::Evaluations(100));
+        let large = search_with_limit(&board, &params, SearchLimit::Evaluations(20_000));
+
+        assert!(large.depth_reached > small.depth_reached);
     }
 
     #[test]
