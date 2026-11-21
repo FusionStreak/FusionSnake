@@ -171,13 +171,12 @@ impl SimBoard {
     /// Follows the official Battlesnake rule resolution order:
     /// 1. Move all snakes (advance head, maybe remove tail)
     /// 2. Reduce health by 1
-    /// 3. Eliminate snakes with health <= 0 (starvation)
-    /// 4. Feed snakes on food (restore health, mark for growth)
-    /// 5. Apply hazard damage
-    /// 6. Eliminate snakes with health <= 0 (hazard death)
-    /// 7. Eliminate snakes that moved out of bounds
-    /// 8. Eliminate snakes that collided with a body segment
-    /// 9. Resolve head-to-head collisions
+    /// 3. Feed snakes on food (restore health, mark for growth)
+    /// 4. Apply hazard damage
+    /// 5. Eliminate snakes with health <= 0
+    /// 6. Eliminate snakes that moved out of bounds
+    /// 7. Eliminate snakes that collided with a body segment
+    /// 8. Resolve head-to-head collisions
     pub fn apply_moves(&mut self, moves: &[Direction]) {
         let n = self.snakes.len();
         debug_assert!(moves.len() >= n, "need one move per snake");
@@ -203,14 +202,9 @@ impl SimBoard {
             }
         }
 
-        // ── Step 3: Starvation check ─────────────────────────────────────
-        for snake in &mut self.snakes {
-            if snake.alive && snake.health <= 0 {
-                snake.alive = false;
-            }
-        }
-
-        // ── Step 4: Feed snakes on food ──────────────────────────────────
+        // ── Step 3: Feed snakes on food ──────────────────────────────────
+        // Runs before any health elimination: a snake reaching 0 health on a
+        // food tile eats and survives.
         self.food.retain(|food| {
             let mut eaten = false;
             for (i, snake) in self.snakes.iter_mut().enumerate() {
@@ -229,7 +223,7 @@ impl SimBoard {
             !eaten
         });
 
-        // ── Step 5: Hazard damage ────────────────────────────────────────
+        // ── Step 4: Hazard damage ────────────────────────────────────────
         if self.hazard_damage > 0 {
             for snake in &mut self.snakes {
                 if !snake.alive {
@@ -242,14 +236,14 @@ impl SimBoard {
             }
         }
 
-        // ── Step 6: Hazard death check ───────────────────────────────────
+        // ── Step 5: Starvation and hazard death ──────────────────────────
         for snake in &mut self.snakes {
             if snake.alive && snake.health <= 0 {
                 snake.alive = false;
             }
         }
 
-        // ── Step 7: Out-of-bounds check ──────────────────────────────────
+        // ── Step 6: Out-of-bounds check ──────────────────────────────────
         for snake in &mut self.snakes {
             if !snake.alive {
                 continue;
@@ -260,7 +254,7 @@ impl SimBoard {
             }
         }
 
-        // ── Step 8: Body collision check ─────────────────────────────────
+        // ── Step 7: Body collision check ─────────────────────────────────
         // A snake's head moving into any body segment (of any snake) is fatal.
         // We check against the full body *including* the head of other snakes
         // (head-to-head is resolved separately below).
@@ -273,7 +267,7 @@ impl SimBoard {
                 if !other.alive {
                     continue;
                 }
-                // Skip checking head-to-head (handled in step 9)
+                // Skip checking head-to-head (handled in step 8)
                 let start = 1; // skip head (head-to-head handled in step 9)
                 if other.body.iter().skip(start).any(|&seg| seg == head) {
                     self.snakes[i].alive = false;
@@ -282,7 +276,7 @@ impl SimBoard {
             }
         }
 
-        // ── Step 9: Head-to-head resolution ──────────────────────────────
+        // ── Step 8: Head-to-head resolution ──────────────────────────────
         // If two or more snakes share the same head position, the shorter
         // ones die.  If they are equal length, all die.
         for i in 0..n {
@@ -458,6 +452,19 @@ mod tests {
         board.apply_moves(&[Direction::Up]);
 
         assert!(!board.snakes[0].alive); // health went to 0
+    }
+
+    #[test]
+    fn test_last_health_point_survives_by_eating() {
+        let us = make_snake(&[(5, 5), (5, 4), (5, 3)], 1);
+        let mut board = make_board(11, 11, vec![us], vec![Coord::new(5, 6)]);
+
+        board.apply_moves(&[Direction::Up]);
+
+        assert!(board.snakes[0].alive);
+        assert_eq!(board.snakes[0].health, 100);
+        assert_eq!(board.snakes[0].length(), 4);
+        assert!(board.food.is_empty());
     }
 
     #[test]
