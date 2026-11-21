@@ -1,0 +1,38 @@
+name: Cargo deny advisories
+
+# Not a required check: new advisories can appear with no code change, so the
+# weekly run surfaces them without blocking unrelated PRs.
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "Cargo.toml"
+            - "crates/**/Cargo.toml"
+            - "Cargo.lock"
+            - "deny.toml"
+            - ".github/workflows/cargo-deny-advisories.yml"
+    pull_request:
+        branches: [main]
+        paths:
+            - "Cargo.toml"
+            - "crates/**/Cargo.toml"
+            - "Cargo.lock"
+            - "deny.toml"
+            - ".github/workflows/cargo-deny-advisories.yml"
+    schedule:
+        - cron: "0 6 * * 1"
+
+permissions:
+    contents: read
+
+jobs:
+    advisories:
+        name: Advisories
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  command: check advisories

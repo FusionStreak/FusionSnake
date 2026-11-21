@@ -32,6 +32,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 RUSTFLAGS="-D warnings" cargo test --workspace --all-features --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked
+cargo deny --locked check licenses bans sources
 cargo run                                  # server on 0.0.0.0:6666
 cargo bench -p fusion-engine-standard      # after touching search/evaluation/simulation
 ```
