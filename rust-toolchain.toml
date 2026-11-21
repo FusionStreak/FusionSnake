@@ -1,7 +1,7 @@
 # Pinned so CI and local builds use the same compiler and Clippy lints.
-# Bump deliberately: update `channel` here and `rust-version` in Cargo.toml
-# together, then fix any new lints in the same change. The weekly
-# `rust-canary` workflow previews upcoming breakage on latest stable.
+# The weekly `rust-canary` workflow opens a PR bumping this, `rust-version` in
+# Cargo.toml and the Dockerfile together once latest stable passes. To bump by
+# hand, run `.github/scripts/bump-rust-toolchain.sh <version>`.
 [toolchain]
 channel = "1.100.0"
 components = ["clippy", "rustfmt"]

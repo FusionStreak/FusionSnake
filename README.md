@@ -162,14 +162,14 @@ See the [tuning guide](./crates/fusion-arena/TUNING.md) for how the system works
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `ci.yml` | Every PR, push to `main` | Parallel `fmt`, `clippy`, `test`, `docs`, `deny` (licenses, bans, sources), `typos` and `machete` jobs; `ci-success` aggregates them (the required check) |
-| `rust-canary.yml` | Weekly, manual | Clippy + tests on latest stable to preview the next toolchain bump (not required) |
+| `rust-canary.yml` | Weekly, manual | Clippy + tests on latest stable; opens a toolchain bump PR when they pass (not required) |
 | `fusionsnake.yml` | Push/PR to `main` touching code | Builds the Docker image; publishes to GHCR on push |
 | `cargo-deny-advisories.yml` | Dependency changes, weekly | Security advisories via `cargo deny` (not required; ignores in `deny.toml`) |
 | `release-please.yml` | Push to `main` | Release PRs, version bumps and `CHANGELOG.md` from Conventional Commit messages |
 | `release-docker.yml`, `release-check.yml` | Release published | Release image and checks |
 | `benchmarks.yml` | Manual | Criterion benchmarks |
 
-**Toolchain bumps:** update `channel` in `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and the `FROM rust:…` tag in `src/Dockerfile` together, and fix any new lints in the same PR. A failing `rust-canary` run tells you what's coming.
+**Toolchain bumps:** when latest stable passes, `rust-canary` opens a PR updating `rust-toolchain.toml`, `rust-version` in the root `Cargo.toml`, and the `FROM rust:…` tag in `src/Dockerfile`. PRs it creates don't start CI automatically, so run `gh workflow run ci.yml --ref <branch>`. A failing `rust-canary` run means new lints or breakage need fixing first; apply that bump by hand with `.github/scripts/bump-rust-toolchain.sh <version>`.
 
 ```bash
 docker pull ghcr.io/fusionstreak/fusionsnake:latest
