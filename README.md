@@ -155,6 +155,8 @@ cargo bench --workspace          # Criterion benches live in engine crates
 
 Tune on a development machine, not the server hosting the live snake. [`fusion-arena`](./crates/fusion-arena/README.md) plays reproducible matches, tunes parameters with CMA-ES, and promotes a candidate only after a statistical test. Apply a promoted file with `POST /standard/config`. Each game outcome records a `params_hash` and `engine_version`, so ladder results can confirm the change.
 
+See the [tuning guide](./crates/fusion-arena/TUNING.md) for how the system works and a step-by-step run.
+
 ## CI and Container Images
 
 | Workflow | Trigger | What it does |
