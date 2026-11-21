@@ -17,7 +17,7 @@ FusionSnake is a Rust (edition 2024, Actix Web) [Battlesnake](https://docs.battl
 | `crates/fusion-core/` | `SnakeEngine` trait, `EngineInfo`, `EngineMoveDecision`, `MoveFeatures` |
 | `crates/fusion-models/` | Battlesnake API types (`GameState`, `Board`, …), `GameType`, `GameSource` |
 | `crates/fusion-engine-standard/` | `standard` engine (Standard + Duels): search, evaluation, simulation, benches. See its [README](./crates/fusion-engine-standard/README.md) |
-| `crates/fusion-arena/` | Offline match harness for measuring engines. Development only, never run on the live server. See its [README](./crates/fusion-arena/README.md) |
+| `crates/fusion-arena/` | Offline match harness for measuring engines. Development only, never run on the live server. See its [README](./crates/fusion-arena/README.md) and [tuning guide](./crates/fusion-arena/TUNING.md) |
 | `data/` | Runtime state (git-ignored). Never commit |
 | `scratch/` | Personal notes (git-ignored) |
 
