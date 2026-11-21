@@ -20,8 +20,8 @@ use std::env;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::game_objects::{GameSource, GameType};
 use crate::responses;
+use fusion_models::{GameSource, GameType};
 
 // ---------------------------------------------------------------------------
 // Pool initialisation
@@ -878,7 +878,7 @@ pub async fn get_outcomes(
     }
 }
 
-/// Convert an aggregated SQL row into a [`TrainingAverages`] struct.
+/// Convert an aggregated SQL row into a [`responses::TrainingAverages`] struct.
 ///
 /// Uses `try_get` with defaults so that `NULL` values from empty tables
 /// are gracefully handled instead of panicking.

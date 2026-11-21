@@ -25,12 +25,12 @@ use serde::Serialize;
 
 use crate::auth;
 use crate::db;
-use crate::game_objects::{GameSource, GameState, GameType};
 use crate::logged_json::LoggedJson;
 use crate::logic;
 use crate::responses::{ErrorResponse, InfoResponse, MoveResponse};
 use crate::stats::{self, ActiveGames, cleanup_stale_games};
 use crate::training::TrainingLogger;
+use fusion_models::{GameSource, GameState, GameType};
 
 /// Mount the Battlesnake and config routes for `engine` under `/<engine.name()>`.
 pub fn configure_engine<E>(cfg: &mut web::ServiceConfig, engine: E)

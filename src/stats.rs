@@ -8,7 +8,7 @@ use log::{info, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::game_objects::{GameSource, GameType};
+use fusion_models::{GameSource, GameType};
 
 /// Tracks a currently active game.
 #[derive(Debug, Clone)]

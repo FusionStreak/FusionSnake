@@ -6,7 +6,7 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::game_objects::{GameSource, GameType};
+use fusion_models::{GameSource, GameType};
 
 // ---------------------------------------------------------------------------
 // Battlesnake API responses

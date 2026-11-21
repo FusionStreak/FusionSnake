@@ -13,8 +13,6 @@ mod auth;
 mod db;
 mod engine_registry;
 mod engine_routes;
-mod evaluation;
-mod game_objects;
 mod logged_json;
 mod logic;
 mod responses;
@@ -329,16 +327,16 @@ impl utoipa::Modify for SecurityAddon {
         responses::PaginatedStatsHistory,
         responses::TrainingAverages,
         responses::TrainingSummary,
-        game_objects::GameState,
-        game_objects::Game,
-        game_objects::Ruleset,
-        game_objects::RulesetSettings,
-        game_objects::RoyaleSettings,
-        game_objects::SquadSettings,
-        game_objects::Board,
-        game_objects::Battlesnake,
-        game_objects::Customization,
-        game_objects::Coord,
+        fusion_models::GameState,
+        fusion_models::Game,
+        fusion_models::Ruleset,
+        fusion_models::RulesetSettings,
+        fusion_models::RoyaleSettings,
+        fusion_models::SquadSettings,
+        fusion_models::Board,
+        fusion_models::Battlesnake,
+        fusion_models::Customization,
+        fusion_models::Coord,
     )),
     modifiers(&SecurityAddon),
     tags(
