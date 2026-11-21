@@ -71,28 +71,41 @@ jobs:
                   bash .github/scripts/bump-rust-toolchain.sh --is-newer "$VERSION" "$pin" || rc=$?
                   if [ "$rc" -eq 1 ]; then
                       echo "Pin $pin is already up to date with stable $VERSION."
+                      exit 0
                   elif [ "$rc" -ne 0 ]; then
                       exit "$rc"
-                  elif ! docker manifest inspect "rust:$VERSION-slim" > /dev/null 2>&1; then
+                  fi
+                  if ! docker manifest inspect "rust:$VERSION-slim" > /dev/null 2>&1; then
                       echo "rust:$VERSION-slim isn't published yet. Retrying next run."
-                  elif git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" > /dev/null; then
-                      echo "Branch $BRANCH already exists."
-                  elif [ -n "$(gh pr list --head "$BRANCH" --state all --json number --jq '.[].number')" ]; then
+                      exit 0
+                  fi
+                  # A separate statement so an API failure stops the job.
+                  prs=$(gh pr list --head "$BRANCH" --state all --json number --jq '.[].number')
+                  if [ -n "$prs" ]; then
                       echo "A PR for $BRANCH already exists or was closed."
+                      exit 0
+                  fi
+                  # A branch with no PR means an earlier run failed after pushing.
+                  if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" > /dev/null; then
+                      echo "action=pr-only" >> "$GITHUB_OUTPUT"
                   else
-                      echo "open=true" >> "$GITHUB_OUTPUT"
+                      echo "action=branch-and-pr" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Open the PR
-              if: steps.check.outputs.open == 'true'
+              if: steps.check.outputs.action != ''
+              env:
+                  ACTION: ${{ steps.check.outputs.action }}
               run: |
-                  bash .github/scripts/bump-rust-toolchain.sh "$VERSION"
-                  git config user.name "github-actions[bot]"
-                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-                  git switch -c "$BRANCH"
-                  git add rust-toolchain.toml Cargo.toml src/Dockerfile
-                  git commit -m "chore: bump Rust toolchain to $VERSION"
-                  git push origin "$BRANCH"
+                  if [ "$ACTION" = "branch-and-pr" ]; then
+                      bash .github/scripts/bump-rust-toolchain.sh "$VERSION"
+                      git config user.name "github-actions[bot]"
+                      git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                      git switch -c "$BRANCH"
+                      git add rust-toolchain.toml Cargo.toml src/Dockerfile
+                      git commit -m "chore: bump Rust toolchain to $VERSION"
+                      git push origin "$BRANCH"
+                  fi
                   gh pr create --base main --head "$BRANCH" \
                       --title "chore: bump Rust toolchain to $VERSION" \
                       --body "Updates \`rust-toolchain.toml\`, \`rust-version\` and the Dockerfile image to Rust $VERSION. Clippy and tests passed on this version in \`rust-canary\`.
