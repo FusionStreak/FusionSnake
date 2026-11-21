@@ -292,7 +292,7 @@ pub struct Ruleset {
 /// * `timeout` - How much time your snake has to respond to requests for this Game. Example: 500
 /// * `map` - The name of the map being used for this game. Example: "standard"
 /// * `source` - The source of the game. One of:
-///     * "torunament" - The game is part of a tournament.
+///     * "tournament" - The game is part of a tournament.
 ///     * "league" - for League Arenas.
 ///     * " arena" - for all other Arenas.
 ///     * "challenge" - for games created by a challenge.
