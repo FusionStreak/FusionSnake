@@ -3,6 +3,7 @@ members = [
     "crates/fusion-models",
     "crates/fusion-core",
     "crates/fusion-engine-standard",
+    "crates/fusion-arena",
 ]
 resolver = "2"
 
