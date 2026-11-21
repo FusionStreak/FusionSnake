@@ -161,7 +161,7 @@ See the [tuning guide](./crates/fusion-arena/TUNING.md) for how the system works
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| `ci.yml` | Every PR, push to `main` | Parallel `fmt`, `clippy`, `test`, `docs` and `deny` (licenses, bans, sources) jobs; `ci-success` aggregates them (the required check) |
+| `ci.yml` | Every PR, push to `main` | Parallel `fmt`, `clippy`, `test`, `docs`, `deny` (licenses, bans, sources), `typos` and `machete` jobs; `ci-success` aggregates them (the required check) |
 | `rust-canary.yml` | Weekly, manual | Clippy + tests on latest stable to preview the next toolchain bump (not required) |
 | `fusionsnake.yml` | Push/PR to `main` touching code | Builds the Docker image; publishes to GHCR on push |
 | `cargo-deny-advisories.yml` | Dependency changes, weekly | Security advisories via `cargo deny` (not required; ignores in `deny.toml`) |

@@ -110,12 +110,32 @@ jobs:
               with:
                   command: check licenses bans sources
 
+    typos:
+        name: Typos
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: crate-ci/typos@v1.52.2
+
+    machete:
+        name: Unused dependencies
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-machete
+
+            - run: cargo machete
+
     # Single required status check for branch protection. Add new jobs to
     # `needs` here instead of editing the branch protection rules.
     ci-success:
         name: CI success
         if: always()
-        needs: [fmt, clippy, test, docs, deny]
+        needs: [fmt, clippy, test, docs, deny, typos, machete]
         runs-on: ubuntu-latest
         steps:
             - name: Fail if any required job failed or was cancelled
