@@ -18,10 +18,15 @@ use crate::game_objects::Coord;
 use crate::heuristic_params::HeuristicParams;
 use crate::simulation::SimBoard;
 
+/// Score of a position where our snake is dead.
+pub const LOSS_SCORE: i32 = i32::MIN + 1;
+/// Score of a position where our snake is the sole survivor.
+pub const WIN_SCORE: i32 = i32::MAX - 1;
+
 /// Evaluate the board position from our snake's perspective.
 /// Returns a score where higher = better for us.
 ///
-/// Range: roughly `i32::MIN+1` (dead) to `i32::MAX-1` (won).
+/// Range: [`LOSS_SCORE`] (dead) to [`WIN_SCORE`] (won).
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -30,10 +35,10 @@ use crate::simulation::SimBoard;
 pub fn evaluate(board: &SimBoard, params: &HeuristicParams) -> i32 {
     // ── Terminal checks ──────────────────────────────────────────────────
     if !board.we_are_alive() {
-        return i32::MIN + 1;
+        return LOSS_SCORE;
     }
     if board.we_won() {
-        return i32::MAX - 1;
+        return WIN_SCORE;
     }
 
     let us = board.us();
