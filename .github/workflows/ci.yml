@@ -30,7 +30,7 @@ jobs:
             - uses: actions/checkout@v7
 
             # Installs the toolchain pinned in rust-toolchain.toml.
-            - uses: actions-rust-lang/setup-rust-toolchain@v1
+            - uses: actions-rust-lang/setup-rust-toolchain@v2
               with:
                   cache: false
                   rustflags: ""
@@ -43,7 +43,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
-            - uses: actions-rust-lang/setup-rust-toolchain@v1
+            - uses: actions-rust-lang/setup-rust-toolchain@v2
               with:
                   cache: false
                   rustflags: ""
@@ -66,7 +66,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
-            - uses: actions-rust-lang/setup-rust-toolchain@v1
+            - uses: actions-rust-lang/setup-rust-toolchain@v2
               with:
                   cache: false
                   rustflags: ""
@@ -87,7 +87,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
 
-            - uses: actions-rust-lang/setup-rust-toolchain@v1
+            - uses: actions-rust-lang/setup-rust-toolchain@v2
               with:
                   cache: false
                   rustflags: ""
